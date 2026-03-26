@@ -14,34 +14,41 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MARKER = '<!-- claude-model-router -->';
+const HOOKS_MARKER = 'claude-model-router';
 const SERVER_NAME = 'claude-model-router';
+const HOOKS_DIR = resolve(__dirname, '..', 'hooks');
 
 const CLAUDE_MD_SNIPPET = `
 ${MARKER}
 ## Intelligent Model Routing
 
-You have access to the \`claude-model-router\` MCP server. Use it to minimize token cost by routing tasks to the cheapest capable model.
+You have access to the \`claude-model-router\` MCP server. Use it to track token usage and minimize cost.
 
-### Workflow
+### Logging All Interactions
+
+After **every response you give**, call \`log_invocation\` to record it. This includes simple chat, code edits, debugging, research — everything. Parameters:
+- \`actual_model\`: the model you are running as (e.g., "opus")
+- \`task_type\`: classify as: "chat", "code_edit", "debug", "research", "planning", "commit", "docs", "search", "review", "refactor", "test", "analysis", "architect"
+- \`interaction_mode\`: "direct" for primary conversation, "agent" for delegated sub-tasks, "tool" for tool-heavy responses
+- \`complexity\`: "simple", "medium", or "complex"
+- \`input_tokens\`: estimate tokens in the user's message + relevant context
+- \`output_tokens\`: estimate tokens in your response
+
+### Agent Routing
 
 1. **Before delegating any sub-task to an Agent**, call \`route_task\` with the task description. Use the recommended model in the Agent's \`model\` parameter.
-
-2. **After each Agent completes**, call \`log_invocation\` with the token counts returned by the agent. This tracks cost savings.
-
-3. **At the end of each session** (or when the user asks about costs), call \`session_report\` to show savings and get suggestions.
+2. **After each Agent completes**, call \`log_invocation\` with \`interaction_mode: "agent"\` and the actual token counts returned by the agent.
 
 ### Rules
 
-- Always respect the router's recommendation unless you have a strong reason to override (e.g., the task requires conversation context that can't be summarized).
+- Always respect the router's recommendation for Agent sub-tasks unless you have a strong reason to override.
 - If an Agent on a cheaper model produces poor results, re-run on the next tier up and log with \`escalated: true\`.
-- For tasks under ~500 output tokens, skip routing — the classifier cost exceeds savings.
-- Never route the primary complex task to a cheaper model. Routing is for **sub-tasks delegated to Agents**.
 ${MARKER}
 `;
 
@@ -124,6 +131,140 @@ function appendClaudeMd() {
   return true;
 }
 
+function findClaudeSettings() {
+  // Look for .claude/settings.json in the project root (same search as CLAUDE.md)
+  let dir = process.cwd();
+  while (true) {
+    const candidate = resolve(dir, '.claude', 'settings.json');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Default: create in cwd/.claude/settings.json
+  return resolve(process.cwd(), '.claude', 'settings.json');
+}
+
+function makeHookCommand(scriptName) {
+  return `cd ${HOOKS_DIR} && node ${scriptName}`;
+}
+
+function installHooks() {
+  const settingsPath = findClaudeSettings();
+  const settingsDir = dirname(settingsPath);
+
+  // Ensure .claude directory exists
+  if (!existsSync(settingsDir)) {
+    mkdirSync(settingsDir, { recursive: true });
+  }
+
+  let settings = {};
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    } catch (err) {
+      logErr(`Failed to parse ${settingsPath}: ${err.message}`);
+      return false;
+    }
+  }
+
+  if (!settings.hooks) settings.hooks = {};
+
+  const startHook = {
+    hooks: [{
+      type: 'command',
+      command: makeHookCommand('session-start.js'),
+      timeout: 10,
+      statusMessage: 'Loading model router stats...',
+    }],
+  };
+
+  const endHook = {
+    hooks: [{
+      type: 'command',
+      command: makeHookCommand('session-end.js'),
+      timeout: 10,
+    }],
+  };
+
+  // Check if hooks already exist (by matching our hook command pattern)
+  const hasHook = (event) => {
+    const entries = settings.hooks[event] || [];
+    return entries.some(e => e.hooks?.some(h => h.command?.includes(HOOKS_MARKER)));
+  };
+
+  let installed = 0;
+
+  if (hasHook('SessionStart')) {
+    logSkip('SessionStart hook already installed (skipped)');
+  } else {
+    if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
+    settings.hooks.SessionStart.push(startHook);
+    installed++;
+  }
+
+  if (hasHook('SessionEnd')) {
+    logSkip('SessionEnd hook already installed (skipped)');
+  } else {
+    if (!settings.hooks.SessionEnd) settings.hooks.SessionEnd = [];
+    settings.hooks.SessionEnd.push(endHook);
+    installed++;
+  }
+
+  if (installed > 0) {
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    logOk(`Installed ${installed} hook(s) in ${settingsPath}`);
+  }
+
+  return true;
+}
+
+function removeHooks() {
+  const settingsPath = findClaudeSettings();
+  if (!existsSync(settingsPath)) return;
+
+  let settings;
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+  } catch {
+    return;
+  }
+
+  if (!settings.hooks) return;
+
+  let removed = 0;
+
+  for (const event of ['SessionStart', 'SessionEnd']) {
+    const entries = settings.hooks[event];
+    if (!entries) continue;
+
+    const filtered = entries.filter(
+      e => !e.hooks?.some(h => h.command?.includes(HOOKS_MARKER))
+    );
+
+    if (filtered.length < entries.length) {
+      removed += entries.length - filtered.length;
+      if (filtered.length === 0) {
+        delete settings.hooks[event];
+      } else {
+        settings.hooks[event] = filtered;
+      }
+    }
+  }
+
+  // Clean up empty hooks object
+  if (Object.keys(settings.hooks).length === 0) {
+    delete settings.hooks;
+  }
+
+  if (removed > 0) {
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    logOk(`Removed ${removed} hook(s) from ${settingsPath}`);
+  } else {
+    logSkip('No hooks found to remove');
+  }
+}
+
 function removeClaudeMdSnippet() {
   const claudeMdPath = findClaudeMd();
   if (!existsSync(claudeMdPath)) return;
@@ -154,6 +295,7 @@ function uninstall() {
   }
 
   removeClaudeMdSnippet();
+  removeHooks();
   console.log('\n  Done. Database file (~/.claude/.claude-model-router.db) was left intact.\n');
 }
 
@@ -182,6 +324,9 @@ function setup(scope) {
 
   // Append CLAUDE.md instructions
   appendClaudeMd();
+
+  // Install session hooks
+  installHooks();
 
   console.log('\n  Setup complete. Start a new Claude Code session to activate routing.\n');
 }

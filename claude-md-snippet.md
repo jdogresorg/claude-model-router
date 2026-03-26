@@ -4,10 +4,6 @@
 
 You have access to the `claude-model-router` MCP server. Use it to track token usage and minimize cost.
 
-### Session Start
-
-At the start of each session, call `lifetime_stats` and display the results to the user.
-
 ### Logging All Interactions
 
 After **every response you give**, call `log_invocation` to record it. This includes simple chat, code edits, debugging, research — everything. Parameters:
@@ -22,10 +18,6 @@ After **every response you give**, call `log_invocation` to record it. This incl
 
 1. **Before delegating any sub-task to an Agent**, call `route_task` with the task description. Use the recommended model in the Agent's `model` parameter.
 2. **After each Agent completes**, call `log_invocation` with `interaction_mode: "agent"` and the actual token counts returned by the agent.
-
-### Session Report
-
-At the end of each session (or when the user asks about costs), call `session_report` to show savings and suggestions.
 
 ### Rules
 

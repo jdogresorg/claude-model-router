@@ -2,6 +2,19 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.3.1] - 2026-03-26
+
+### Added
+
+- SessionStart and SessionEnd hooks that query SQLite directly for stats display
+- Setup script now installs/removes hooks in `.claude/settings.json` automatically
+- `hooks/` directory included in published package
+
+### Changed
+
+- Removed "Session Start" and "Session Report" sections from CLAUDE.md snippet (now handled by hooks)
+- Updated embedded CLAUDE_MD_SNIPPET to match trimmed instructions
+
 ## [0.2.0] - 2026-03-26
 
 ### Changed
