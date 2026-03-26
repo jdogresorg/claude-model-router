@@ -8,6 +8,8 @@
 import {
   finalizeSession,
   getSessionModelBreakdown,
+  getSessionTaskTypeBreakdown,
+  getSessionModeBreakdown,
   getLifetimeStats,
   getRecentSessions,
   getEscalationPatterns,
@@ -20,6 +22,8 @@ import { MODEL_PRICING } from './config.js';
 export function generateSessionReport(sessionId) {
   const stats = finalizeSession(sessionId);
   const breakdown = getSessionModelBreakdown(sessionId);
+  const taskTypeBreakdown = getSessionTaskTypeBreakdown(sessionId);
+  const modeBreakdown = getSessionModeBreakdown(sessionId);
   const lifetime = getLifetimeStats();
   const escalations = getEscalationPatterns(5);
 
@@ -30,6 +34,8 @@ export function generateSessionReport(sessionId) {
   lines.push(`| Metric | Value |`);
   lines.push(`|---|---|`);
   lines.push(`| Invocations | ${stats.total_invocations} |`);
+  lines.push(`| Input tokens | ${stats.total_input_tokens || 0} |`);
+  lines.push(`| Output tokens | ${stats.total_output_tokens || 0} |`);
   lines.push(`| Total cost | $${stats.total_cost.toFixed(4)} |`);
   lines.push(`| All-Opus baseline | $${stats.total_opus_baseline.toFixed(4)} |`);
   lines.push(`| Savings | $${stats.total_savings.toFixed(4)} (${stats.savingsPct.toFixed(1)}%) |`);
@@ -44,6 +50,32 @@ export function generateSessionReport(sessionId) {
     for (const row of breakdown) {
       lines.push(
         `| ${row.model} | ${row.invocations} | ${row.input_tokens} | ${row.output_tokens} | $${row.cost.toFixed(4)} | $${row.savings.toFixed(4)} |`
+      );
+    }
+    lines.push('');
+  }
+
+  if (taskTypeBreakdown.length > 0) {
+    lines.push('### By Task Type');
+    lines.push('');
+    lines.push('| Task Type | Invocations | Tokens | Cost |');
+    lines.push('|---|---|---|---|');
+    for (const row of taskTypeBreakdown) {
+      lines.push(
+        `| ${row.task_type} | ${row.invocations} | ${(row.input_tokens || 0) + (row.output_tokens || 0)} | $${row.cost.toFixed(4)} |`
+      );
+    }
+    lines.push('');
+  }
+
+  if (modeBreakdown.length > 0) {
+    lines.push('### By Interaction Mode');
+    lines.push('');
+    lines.push('| Mode | Invocations | Tokens | Cost |');
+    lines.push('|---|---|---|---|');
+    for (const row of modeBreakdown) {
+      lines.push(
+        `| ${row.interaction_mode} | ${row.invocations} | ${(row.input_tokens || 0) + (row.output_tokens || 0)} | $${row.cost.toFixed(4)} |`
       );
     }
     lines.push('');

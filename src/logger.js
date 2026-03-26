@@ -26,6 +26,7 @@ function getDb() {
 }
 
 function initSchema(database) {
+  // Create tables
   database.exec(`
     CREATE TABLE IF NOT EXISTS invocations (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +36,7 @@ function initSchema(database) {
       complexity      TEXT,
       task_type       TEXT,
       context_dep     TEXT,
+      interaction_mode TEXT DEFAULT 'agent',
       mixed           INTEGER DEFAULT 0,
       recommended_model TEXT,
       actual_model    TEXT,
@@ -60,9 +62,21 @@ function initSchema(database) {
       total_savings   REAL DEFAULT 0,
       savings_pct     REAL DEFAULT 0
     );
+  `);
 
+  // Migration: add interaction_mode column to existing databases
+  try {
+    database.exec(`ALTER TABLE invocations ADD COLUMN interaction_mode TEXT DEFAULT 'agent'`);
+  } catch (_) {
+    // Column already exists
+  }
+
+  // Create indexes (after migrations so new columns exist)
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_inv_session ON invocations(session_id);
     CREATE INDEX IF NOT EXISTS idx_inv_timestamp ON invocations(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_inv_task_type ON invocations(task_type);
+    CREATE INDEX IF NOT EXISTS idx_inv_interaction_mode ON invocations(interaction_mode);
   `);
 }
 
@@ -82,6 +96,7 @@ export function logInvocation({
   complexity,
   taskType,
   contextDep,
+  interactionMode = 'agent',
   mixed = false,
   recommendedModel,
   actualModel,
@@ -95,7 +110,7 @@ export function logInvocation({
 }) {
   const database = getDb();
 
-  const model = actualModel || recommendedModel;
+  const model = actualModel || recommendedModel || 'opus';
   const pricing = MODEL_PRICING[model] || MODEL_PRICING.opus;
   const estimatedCost = inputTokens * pricing.input + outputTokens * pricing.output;
 
@@ -113,14 +128,14 @@ export function logInvocation({
 
   const stmt = database.prepare(`
     INSERT INTO invocations (
-      session_id, prompt_preview, complexity, task_type, context_dep, mixed,
+      session_id, prompt_preview, complexity, task_type, context_dep, interaction_mode, mixed,
       recommended_model, actual_model, override_reason,
       input_tokens, output_tokens,
       classifier_input_tokens, classifier_output_tokens,
       estimated_cost, opus_baseline_cost, savings,
       escalated, duration_ms
     ) VALUES (
-      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?,
       ?, ?,
@@ -135,8 +150,9 @@ export function logInvocation({
     complexity,
     taskType,
     contextDep,
+    interactionMode,
     mixed ? 1 : 0,
-    recommendedModel,
+    recommendedModel || null,
     model,
     overrideReason || null,
     inputTokens,
@@ -250,6 +266,109 @@ export function getLifetimeStats() {
 }
 
 /**
+ * Get per-task-type breakdown for a session.
+ */
+export function getSessionTaskTypeBreakdown(sessionId) {
+  const database = getDb();
+  return database.prepare(`
+    SELECT
+      task_type,
+      COUNT(*) AS invocations,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens,
+      SUM(estimated_cost) AS cost,
+      SUM(opus_baseline_cost) AS opus_baseline,
+      SUM(savings) AS savings
+    FROM invocations
+    WHERE session_id = ?
+    GROUP BY task_type
+    ORDER BY cost DESC
+  `).all(sessionId);
+}
+
+/**
+ * Get per-interaction-mode breakdown for a session.
+ */
+export function getSessionModeBreakdown(sessionId) {
+  const database = getDb();
+  return database.prepare(`
+    SELECT
+      interaction_mode,
+      COUNT(*) AS invocations,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens,
+      SUM(estimated_cost) AS cost,
+      SUM(opus_baseline_cost) AS opus_baseline,
+      SUM(savings) AS savings
+    FROM invocations
+    WHERE session_id = ?
+    GROUP BY interaction_mode
+    ORDER BY cost DESC
+  `).all(sessionId);
+}
+
+/**
+ * Get lifetime stats with breakdowns (reads from invocations directly, not just finalized sessions).
+ */
+export function getLifetimeDetailedStats() {
+  const database = getDb();
+
+  const totals = database.prepare(`
+    SELECT
+      COUNT(DISTINCT session_id) AS total_sessions,
+      COUNT(*) AS total_invocations,
+      COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+      COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+      COALESCE(SUM(estimated_cost), 0) AS total_cost,
+      COALESCE(SUM(opus_baseline_cost), 0) AS total_opus_baseline,
+      COALESCE(SUM(savings), 0) AS total_savings,
+      CASE WHEN SUM(opus_baseline_cost) > 0
+        THEN (SUM(savings) / SUM(opus_baseline_cost)) * 100
+        ELSE 0
+      END AS savings_pct
+    FROM invocations
+  `).get();
+
+  const byModel = database.prepare(`
+    SELECT
+      actual_model AS model,
+      COUNT(*) AS invocations,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens,
+      SUM(estimated_cost) AS cost
+    FROM invocations
+    GROUP BY actual_model
+    ORDER BY cost DESC
+  `).all();
+
+  const byTaskType = database.prepare(`
+    SELECT
+      task_type,
+      COUNT(*) AS invocations,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens,
+      SUM(estimated_cost) AS cost
+    FROM invocations
+    GROUP BY task_type
+    ORDER BY cost DESC
+  `).all();
+
+  const byMode = database.prepare(`
+    SELECT
+      interaction_mode,
+      COUNT(*) AS invocations,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens,
+      SUM(estimated_cost) AS cost
+    FROM invocations
+    GROUP BY interaction_mode
+    ORDER BY cost DESC
+  `).all();
+
+  return { totals, byModel, byTaskType, byMode };
+}
+
+/**
  * Get escalation patterns — tasks that were routed to a cheap model but had to retry.
  */
 export function getEscalationPatterns(limit = 20) {
@@ -276,7 +395,10 @@ export default {
   finalizeSession,
   getRecentSessions,
   getSessionModelBreakdown,
+  getSessionTaskTypeBreakdown,
+  getSessionModeBreakdown,
   getLifetimeStats,
+  getLifetimeDetailedStats,
   getEscalationPatterns,
   closeDb,
 };

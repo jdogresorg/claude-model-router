@@ -16,7 +16,7 @@ import { classifyAndRoute } from './classifier.js';
 import {
   newSessionId,
   logInvocation,
-  getLifetimeStats,
+  getLifetimeDetailedStats,
   closeDb,
 } from './logger.js';
 import { generateSessionReport, generateQuickSummary } from './reporter.js';
@@ -85,16 +85,17 @@ server.tool(
 // Records a completed task for cost tracking.
 server.tool(
   'log_invocation',
-  'Log a completed task invocation for cost tracking. Call this AFTER a subagent or delegated task completes, passing the token counts and model used.',
+  'Log any interaction for cost tracking. Call this AFTER every response — whether direct chat, agent sub-task, code edit, debug session, or research task.',
   {
-    prompt_preview: z.string().describe('Short description of the task (first ~200 chars)'),
-    recommended_model: z.string().describe('The model that route_task recommended'),
-    actual_model: z.string().describe('The model that actually executed the task (may differ if overridden)'),
-    complexity: z.string().describe('Complexity classification: simple, medium, or complex'),
-    task_type: z.string().describe('Task type: docs, format, search, classify, summarize, codegen, review, refactor, test, debug, analysis, architect'),
-    context_dependency: z.string().describe('Context dependency: low or high'),
-    input_tokens: z.number().optional().describe('Input tokens consumed by the task'),
-    output_tokens: z.number().optional().describe('Output tokens consumed by the task'),
+    prompt_preview: z.string().describe('Short description of the interaction (first ~200 chars)'),
+    actual_model: z.string().describe('The model that handled the interaction (e.g., "opus", "sonnet", "haiku")'),
+    task_type: z.string().describe('Task type: chat, code_edit, debug, research, planning, commit, docs, format, search, classify, summarize, codegen, review, refactor, test, analysis, architect'),
+    interaction_mode: z.string().optional().describe('Interaction mode: "direct" for primary conversation, "agent" for delegated sub-tasks, "tool" for tool-heavy responses. Defaults to "direct".'),
+    complexity: z.string().optional().describe('Complexity classification: simple, medium, or complex. Defaults to "simple".'),
+    context_dependency: z.string().optional().describe('Context dependency: low or high. Defaults to "low".'),
+    recommended_model: z.string().optional().describe('The model that route_task recommended (only for agent sub-tasks)'),
+    input_tokens: z.number().optional().describe('Input tokens consumed (estimate if exact count unavailable)'),
+    output_tokens: z.number().optional().describe('Output tokens consumed (estimate if exact count unavailable)'),
     classifier_input_tokens: z.number().optional().describe('Input tokens used by the classifier call (from route_task)'),
     classifier_output_tokens: z.number().optional().describe('Output tokens used by the classifier call (from route_task)'),
     escalated: z.boolean().optional().describe('True if the task had to be re-run on a more capable model'),
@@ -106,9 +107,10 @@ server.tool(
       const result = logInvocation({
         sessionId: SESSION_ID,
         promptPreview: params.prompt_preview,
-        complexity: params.complexity,
+        complexity: params.complexity || 'simple',
         taskType: params.task_type,
-        contextDep: params.context_dependency,
+        contextDep: params.context_dependency || 'low',
+        interactionMode: params.interaction_mode || 'direct',
         mixed: false,
         recommendedModel: params.recommended_model,
         actualModel: params.actual_model,
@@ -202,23 +204,49 @@ server.tool(
 // Aggregate stats across all sessions.
 server.tool(
   'lifetime_stats',
-  'Return aggregate cost and savings statistics across all recorded sessions.',
+  'Return detailed cost, savings, and usage statistics across all recorded sessions — broken down by model, task type, and interaction mode.',
   {},
   async () => {
     try {
-      const stats = getLifetimeStats();
+      const { totals, byModel, byTaskType, byMode } = getLifetimeDetailedStats();
+
+      const formatCost = (v) => `$${(v || 0).toFixed(4)}`;
+
       return {
         content: [
           {
             type: 'text',
             text: JSON.stringify(
               {
-                total_sessions: stats.total_sessions,
-                total_invocations: stats.total_invocations,
-                total_cost: `$${stats.total_cost.toFixed(4)}`,
-                all_opus_baseline: `$${stats.total_opus_baseline.toFixed(4)}`,
-                total_savings: `$${stats.total_savings.toFixed(4)}`,
-                savings_pct: `${stats.savings_pct.toFixed(1)}%`,
+                totals: {
+                  sessions: totals.total_sessions,
+                  invocations: totals.total_invocations,
+                  input_tokens: totals.total_input_tokens,
+                  output_tokens: totals.total_output_tokens,
+                  cost: formatCost(totals.total_cost),
+                  opus_baseline: formatCost(totals.total_opus_baseline),
+                  savings: formatCost(totals.total_savings),
+                  savings_pct: `${(totals.savings_pct || 0).toFixed(1)}%`,
+                },
+                by_model: byModel.map(r => ({
+                  model: r.model,
+                  invocations: r.invocations,
+                  input_tokens: r.input_tokens,
+                  output_tokens: r.output_tokens,
+                  cost: formatCost(r.cost),
+                })),
+                by_task_type: byTaskType.map(r => ({
+                  task_type: r.task_type,
+                  invocations: r.invocations,
+                  tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
+                  cost: formatCost(r.cost),
+                })),
+                by_interaction_mode: byMode.map(r => ({
+                  mode: r.interaction_mode,
+                  invocations: r.invocations,
+                  tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
+                  cost: formatCost(r.cost),
+                })),
               },
               null,
               2
