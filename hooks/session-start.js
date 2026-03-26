@@ -2,6 +2,9 @@
 /**
  * Claude Code SessionStart hook — queries claude-model-router's SQLite DB
  * and outputs lifetime stats so Claude sees them at conversation start.
+ *
+ * Outputs JSON with:
+ *   - hookSpecificOutput.additionalContext: injected into Claude's context
  */
 
 import Database from 'better-sqlite3';
@@ -19,9 +22,22 @@ function pct(val) {
   return `${val.toFixed(1)}%`;
 }
 
+function output(additionalContext, systemMessage) {
+  const result = {
+    hookSpecificOutput: {
+      hookEventName: 'SessionStart',
+      additionalContext,
+    },
+  };
+  if (systemMessage) {
+    result.systemMessage = systemMessage;
+  }
+  console.log(JSON.stringify(result));
+}
+
 try {
   if (!existsSync(DB_PATH)) {
-    console.log('[model-router] No data yet (database not found).');
+    output('[model-router] No data yet (database not found).');
     process.exit(0);
   }
 
@@ -40,7 +56,7 @@ try {
   `).get();
 
   if (row.invocations === 0) {
-    console.log('[model-router] No interactions logged yet.');
+    output('[model-router] No interactions logged yet.');
     db.close();
     process.exit(0);
   }
@@ -48,7 +64,9 @@ try {
   const savingsPct = row.opus_baseline > 0 ? (row.savings / row.opus_baseline) * 100 : 0;
   const totalTokens = (row.input_tokens + row.output_tokens).toLocaleString();
 
-  console.log(
+  const lines = [];
+
+  lines.push(
     `[model-router] Lifetime: ${row.sessions} sessions, ${row.invocations} interactions | ` +
     `Cost: ${fmt(row.cost)} (saved ${fmt(row.savings)}, ${pct(savingsPct)}) | ` +
     `Tokens: ${totalTokens}`
@@ -62,7 +80,7 @@ try {
 
   if (models.length) {
     const parts = models.map(m => `${m.model}:${m.n}(${fmt(m.cost)})`);
-    console.log(`[model-router] By model: ${parts.join(' | ')}`);
+    lines.push(`[model-router] By model: ${parts.join(' | ')}`);
   }
 
   // Last session summary
@@ -73,7 +91,7 @@ try {
   `).get();
 
   if (last) {
-    console.log(
+    lines.push(
       `[model-router] Last session: ${last.n} interactions, ` +
       `cost ${fmt(last.cost)}, saved ${fmt(last.savings)} ` +
       `(${last.started.slice(0, 16)} to ${last.ended.slice(0, 16)})`
@@ -81,6 +99,10 @@ try {
   }
 
   db.close();
+
+  const statsText = lines.join('\n');
+
+  output(statsText, statsText);
 } catch (e) {
   console.error(`[model-router] Stats unavailable: ${e.message}`);
 }
