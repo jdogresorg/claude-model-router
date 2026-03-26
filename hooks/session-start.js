@@ -4,6 +4,7 @@
  * and outputs lifetime stats so Claude sees them at conversation start.
  *
  * Outputs JSON with:
+ *   - systemMessage: displayed in terminal to user
  *   - hookSpecificOutput.additionalContext: injected into Claude's context
  */
 
@@ -100,7 +101,7 @@ try {
 
   db.close();
 
-  const statsText = lines.join('\n');
+  const statsText = '\n' + lines.join('\n');
 
   output(statsText, statsText);
 } catch (e) {

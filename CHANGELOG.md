@@ -2,6 +2,12 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.4.1] - 2026-03-26
+
+### Fixed
+
+- Add leading newline to session-start stats output so lines display below the hook header instead of inline
+
 ## [0.4.0] - 2026-03-26
 
 ### Added
