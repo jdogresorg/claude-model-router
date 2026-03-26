@@ -6,7 +6,7 @@
     "name": "J-Dog",
     "email": "j-dog@j-dog.net"
   },
-  "repository": "https://github.com/jdog/claude-model-router",
+  "repository": "https://github.com/jdogresorg/claude-model-router",
   "license": "MIT",
   "keywords": [
     "cost-tracking",
