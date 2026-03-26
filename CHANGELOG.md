@@ -2,6 +2,14 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.2.0] - 2026-03-26
+
+### Changed
+
+- Migrated all MCP tool parameter schemas from plain JSON objects to Zod validation
+- Added `zod` dependency
+- Added author field to package.json
+
 ## [0.1.0] - 2026-03-26
 
 ### Added

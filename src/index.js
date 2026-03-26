@@ -11,6 +11,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 import { classifyAndRoute } from './classifier.js';
 import {
   newSessionId,
@@ -35,14 +36,8 @@ server.tool(
   'route_task',
   'Classify a task by complexity and return the cheapest capable model recommendation. Call this BEFORE delegating work to a subagent to decide which model to use.',
   {
-    prompt: {
-      type: 'string',
-      description: 'The task description or user prompt to classify',
-    },
-    context: {
-      type: 'string',
-      description: 'Optional context — file names involved, recent tool usage, project area',
-    },
+    prompt: z.string().describe('The task description or user prompt to classify'),
+    context: z.string().optional().describe('Optional context — file names involved, recent tool usage, project area'),
   },
   async ({ prompt, context }) => {
     try {
@@ -92,58 +87,19 @@ server.tool(
   'log_invocation',
   'Log a completed task invocation for cost tracking. Call this AFTER a subagent or delegated task completes, passing the token counts and model used.',
   {
-    prompt_preview: {
-      type: 'string',
-      description: 'Short description of the task (first ~200 chars)',
-    },
-    recommended_model: {
-      type: 'string',
-      description: 'The model that route_task recommended',
-    },
-    actual_model: {
-      type: 'string',
-      description: 'The model that actually executed the task (may differ if overridden)',
-    },
-    complexity: {
-      type: 'string',
-      description: 'Complexity classification: simple, medium, or complex',
-    },
-    task_type: {
-      type: 'string',
-      description: 'Task type: docs, format, search, classify, summarize, codegen, review, refactor, test, debug, analysis, architect',
-    },
-    context_dependency: {
-      type: 'string',
-      description: 'Context dependency: low or high',
-    },
-    input_tokens: {
-      type: 'number',
-      description: 'Input tokens consumed by the task',
-    },
-    output_tokens: {
-      type: 'number',
-      description: 'Output tokens consumed by the task',
-    },
-    classifier_input_tokens: {
-      type: 'number',
-      description: 'Input tokens used by the classifier call (from route_task)',
-    },
-    classifier_output_tokens: {
-      type: 'number',
-      description: 'Output tokens used by the classifier call (from route_task)',
-    },
-    escalated: {
-      type: 'boolean',
-      description: 'True if the task had to be re-run on a more capable model',
-    },
-    override_reason: {
-      type: 'string',
-      description: 'Why the actual model differed from the recommendation, if applicable',
-    },
-    duration_ms: {
-      type: 'number',
-      description: 'How long the task took in milliseconds',
-    },
+    prompt_preview: z.string().describe('Short description of the task (first ~200 chars)'),
+    recommended_model: z.string().describe('The model that route_task recommended'),
+    actual_model: z.string().describe('The model that actually executed the task (may differ if overridden)'),
+    complexity: z.string().describe('Complexity classification: simple, medium, or complex'),
+    task_type: z.string().describe('Task type: docs, format, search, classify, summarize, codegen, review, refactor, test, debug, analysis, architect'),
+    context_dependency: z.string().describe('Context dependency: low or high'),
+    input_tokens: z.number().optional().describe('Input tokens consumed by the task'),
+    output_tokens: z.number().optional().describe('Output tokens consumed by the task'),
+    classifier_input_tokens: z.number().optional().describe('Input tokens used by the classifier call (from route_task)'),
+    classifier_output_tokens: z.number().optional().describe('Output tokens used by the classifier call (from route_task)'),
+    escalated: z.boolean().optional().describe('True if the task had to be re-run on a more capable model'),
+    override_reason: z.string().optional().describe('Why the actual model differed from the recommendation, if applicable'),
+    duration_ms: z.number().optional().describe('How long the task took in milliseconds'),
   },
   async (params) => {
     try {
@@ -194,10 +150,7 @@ server.tool(
   'session_report',
   'Generate a cost-savings report with suggestions for the current session. Call this at the end of a session or when the user asks about routing efficiency.',
   {
-    format: {
-      type: 'string',
-      description: 'Report format: "full" for detailed markdown table, "quick" for one-line summary. Defaults to "full".',
-    },
+    format: z.string().optional().describe('Report format: "full" for detailed markdown table, "quick" for one-line summary. Defaults to "full".'),
   },
   async ({ format }) => {
     try {
