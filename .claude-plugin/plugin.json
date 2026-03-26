@@ -1,0 +1,18 @@
+{
+  "name": "claude-model-router",
+  "version": "0.4.0",
+  "description": "Automatic token usage tracking and intelligent model routing for Claude Code agents",
+  "author": {
+    "name": "J-Dog",
+    "email": "j-dog@j-dog.net"
+  },
+  "repository": "https://github.com/jdog/claude-model-router",
+  "license": "MIT",
+  "keywords": [
+    "cost-tracking",
+    "model-routing",
+    "token-usage",
+    "hooks",
+    "mcp"
+  ]
+}

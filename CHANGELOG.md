@@ -2,6 +2,25 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.4.0] - 2026-03-26
+
+### Added
+
+- Converted to Claude Code plugin format (`.claude-plugin/plugin.json`, `.mcp.json`, `hooks/hooks.json`)
+- Stop hook (`hooks/stop.js`) that automatically logs token usage from transcript data after every response
+- Hooks are now self-registering via plugin system — no manual `settings.json` editing needed
+
+### Removed
+
+- `src/setup.js` CLI installer — replaced by plugin install (`claude --plugin-dir` or marketplace)
+- `claude-md-snippet.md` — CLAUDE.md instructions now simplified (manual `log_invocation` no longer needed)
+- `bin` and `files` fields from `package.json` (no longer an npx CLI tool)
+
+### Changed
+
+- CLAUDE.md instructions simplified: interaction logging is automatic, only agent routing requires manual calls
+- Version bump to 0.4.0
+
 ## [0.3.1] - 2026-03-26
 
 ### Added
