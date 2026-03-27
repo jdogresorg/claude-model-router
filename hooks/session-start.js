@@ -160,6 +160,31 @@ try {
     lines.push(`[model-router] By model: ${parts.join(' | ')}`);
   }
 
+  // claude-mem recall savings
+  const memTableExists = db.prepare(`
+    SELECT name FROM sqlite_master WHERE type='table' AND name='mem_recalls'
+  `).get();
+
+  if (memTableExists) {
+    const mem = db.prepare(`
+      SELECT
+        COUNT(*) AS recalls,
+        COALESCE(SUM(observation_count), 0) AS observations,
+        COALESCE(SUM(discovery_tokens), 0) AS tokens,
+        COALESCE(SUM(estimated_savings), 0) AS savings
+      FROM mem_recalls
+    `).get();
+
+    if (mem && mem.recalls > 0) {
+      lines.push(
+        `[model-router] Mem recalls: ${mem.recalls} lookups, ` +
+        `${mem.observations} observations, ` +
+        `${mem.tokens.toLocaleString()} discovery tokens, ` +
+        `est. saved ${fmt(mem.savings)}`
+      );
+    }
+  }
+
   // Last session summary
   const last = db.prepare(`
     SELECT session_id, MIN(timestamp) AS started, MAX(timestamp) AS ended,

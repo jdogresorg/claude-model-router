@@ -1,6 +1,6 @@
 {
   "name": "claude-model-router",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Automatic token usage tracking and intelligent model routing for Claude Code agents",
   "author": "J-Dog <j-dog@j-dog.net>",
   "type": "module",

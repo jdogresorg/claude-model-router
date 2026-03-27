@@ -2,6 +2,20 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.5.0] - 2026-03-26
+
+### Added
+
+- claude-mem recall savings tracker: detects when claude-mem MCP tools are used to recall past work and estimates cost savings
+- New `mem_recalls` SQLite table tracks every claude-mem tool call with observation IDs, discovery tokens, and estimated savings
+- Stop hook scans transcripts (main + subagent) for claude-mem MCP tool calls (`get_observations`, `search`, `timeline`, `smart_*`)
+- For `get_observations` calls, looks up `discovery_tokens` from claude-mem's SQLite DB to estimate what re-discovery would have cost
+- Session report includes "Memory Recall Savings" section with per-tool breakdown
+- `lifetime_stats` MCP tool returns `mem_recall_savings` block (total recalls, observations, discovery tokens, estimated savings, combined savings)
+- Session-start banner shows mem recall stats: lookups, observations, discovery tokens, estimated savings
+- New logger functions: `logMemRecall()`, `getSessionMemSavings()`, `getSessionMemToolBreakdown()`, `getLifetimeMemSavings()`
+- Backwards-compatible: gracefully handles databases without `mem_recalls` table
+
 ## [0.4.3] - 2026-03-26
 
 ### Changed

@@ -13,6 +13,9 @@ import {
   getLifetimeStats,
   getRecentSessions,
   getEscalationPatterns,
+  getSessionMemSavings,
+  getSessionMemToolBreakdown,
+  getLifetimeMemSavings,
 } from './logger.js';
 import { MODEL_PRICING } from './config.js';
 
@@ -81,6 +84,33 @@ export function generateSessionReport(sessionId) {
     lines.push('');
   }
 
+  // claude-mem recall savings
+  const memSavings = getSessionMemSavings(sessionId);
+  const memToolBreakdown = getSessionMemToolBreakdown(sessionId);
+
+  if (memSavings && memSavings.total_recalls > 0) {
+    lines.push('### Memory Recall Savings (claude-mem)');
+    lines.push('');
+    lines.push(`| Metric | Value |`);
+    lines.push(`|---|---|`);
+    lines.push(`| Recall events | ${memSavings.total_recalls} |`);
+    lines.push(`| Observations recalled | ${memSavings.total_observations_recalled} |`);
+    lines.push(`| Discovery tokens (original cost) | ${memSavings.total_discovery_tokens.toLocaleString()} |`);
+    lines.push(`| Est. savings (vs re-discovery) | $${memSavings.total_estimated_savings.toFixed(4)} |`);
+    lines.push('');
+
+    if (memToolBreakdown.length > 0) {
+      lines.push('| Tool | Calls | Observations | Discovery Tokens | Est. Savings |');
+      lines.push('|---|---|---|---|---|');
+      for (const row of memToolBreakdown) {
+        lines.push(
+          `| ${row.tool_name} | ${row.calls} | ${row.observations} | ${row.discovery_tokens.toLocaleString()} | $${row.savings.toFixed(4)} |`
+        );
+      }
+      lines.push('');
+    }
+  }
+
   // Suggestions based on patterns
   const suggestions = generateSuggestions(stats, breakdown, escalations);
   if (suggestions.length > 0) {
@@ -93,6 +123,8 @@ export function generateSessionReport(sessionId) {
   }
 
   // Lifetime stats
+  const lifetimeMem = getLifetimeMemSavings();
+
   if (lifetime.total_sessions > 1) {
     lines.push('### Lifetime Stats');
     lines.push('');
@@ -100,7 +132,11 @@ export function generateSessionReport(sessionId) {
     lines.push(`|---|---|`);
     lines.push(`| Total sessions | ${lifetime.total_sessions} |`);
     lines.push(`| Total cost | $${lifetime.total_cost.toFixed(4)} |`);
-    lines.push(`| Total savings | $${lifetime.total_savings.toFixed(4)} (${lifetime.savings_pct.toFixed(1)}%) |`);
+    lines.push(`| Total savings (routing) | $${lifetime.total_savings.toFixed(4)} (${lifetime.savings_pct.toFixed(1)}%) |`);
+    if (lifetimeMem && lifetimeMem.total_recalls > 0) {
+      lines.push(`| Total savings (mem recall) | $${lifetimeMem.total_estimated_savings.toFixed(4)} (${lifetimeMem.total_recalls} recalls, ${lifetimeMem.total_discovery_tokens.toLocaleString()} tokens) |`);
+      lines.push(`| Combined savings | $${(lifetime.total_savings + lifetimeMem.total_estimated_savings).toFixed(4)} |`);
+    }
     lines.push('');
   }
 

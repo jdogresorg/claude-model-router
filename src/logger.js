@@ -71,12 +71,28 @@ function initSchema(database) {
     // Column already exists
   }
 
+  // Mem recall tracking — records when claude-mem tools are used to recall past work
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS mem_recalls (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id        TEXT NOT NULL,
+      timestamp         TEXT NOT NULL DEFAULT (datetime('now')),
+      tool_name         TEXT NOT NULL,
+      observation_ids   TEXT,
+      observation_count INTEGER DEFAULT 0,
+      discovery_tokens  INTEGER DEFAULT 0,
+      estimated_savings REAL DEFAULT 0,
+      interaction_mode  TEXT DEFAULT 'direct'
+    );
+  `);
+
   // Create indexes (after migrations so new columns exist)
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_inv_session ON invocations(session_id);
     CREATE INDEX IF NOT EXISTS idx_inv_timestamp ON invocations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_inv_task_type ON invocations(task_type);
     CREATE INDEX IF NOT EXISTS idx_inv_interaction_mode ON invocations(interaction_mode);
+    CREATE INDEX IF NOT EXISTS idx_mem_session ON mem_recalls(session_id);
   `);
 }
 
@@ -382,6 +398,98 @@ export function getEscalationPatterns(limit = 20) {
   `).all(limit);
 }
 
+/**
+ * Log a claude-mem recall event — when memory tools are used to retrieve past work.
+ */
+export function logMemRecall({
+  sessionId,
+  toolName,
+  observationIds = [],
+  discoveryTokens = 0,
+  interactionMode = 'direct',
+}) {
+  const database = getDb();
+
+  // Estimate savings: discovery_tokens at Opus rates (what it would cost to re-discover)
+  // minus a small lookup cost (the mem tool call itself is essentially free — just DB reads)
+  const estimatedSavings = discoveryTokens * MODEL_PRICING.opus.output;
+
+  database.prepare(`
+    INSERT INTO mem_recalls (
+      session_id, tool_name, observation_ids, observation_count,
+      discovery_tokens, estimated_savings, interaction_mode
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sessionId,
+    toolName,
+    observationIds.length > 0 ? JSON.stringify(observationIds) : null,
+    observationIds.length,
+    discoveryTokens,
+    estimatedSavings,
+    interactionMode,
+  );
+
+  return { discoveryTokens, estimatedSavings };
+}
+
+/**
+ * Get mem savings stats for a session.
+ */
+export function getSessionMemSavings(sessionId) {
+  const database = getDb();
+  return database.prepare(`
+    SELECT
+      COUNT(*) AS total_recalls,
+      COALESCE(SUM(observation_count), 0) AS total_observations_recalled,
+      COALESCE(SUM(discovery_tokens), 0) AS total_discovery_tokens,
+      COALESCE(SUM(estimated_savings), 0) AS total_estimated_savings
+    FROM mem_recalls
+    WHERE session_id = ?
+  `).get(sessionId);
+}
+
+/**
+ * Get mem savings breakdown by tool for a session.
+ */
+export function getSessionMemToolBreakdown(sessionId) {
+  const database = getDb();
+  return database.prepare(`
+    SELECT
+      tool_name,
+      COUNT(*) AS calls,
+      COALESCE(SUM(observation_count), 0) AS observations,
+      COALESCE(SUM(discovery_tokens), 0) AS discovery_tokens,
+      COALESCE(SUM(estimated_savings), 0) AS savings
+    FROM mem_recalls
+    WHERE session_id = ?
+    GROUP BY tool_name
+    ORDER BY savings DESC
+  `).all(sessionId);
+}
+
+/**
+ * Get lifetime mem savings stats.
+ */
+export function getLifetimeMemSavings() {
+  const database = getDb();
+
+  // Check if table exists first (for backwards compat)
+  const tableExists = database.prepare(`
+    SELECT name FROM sqlite_master WHERE type='table' AND name='mem_recalls'
+  `).get();
+  if (!tableExists) return null;
+
+  return database.prepare(`
+    SELECT
+      COUNT(*) AS total_recalls,
+      COUNT(DISTINCT session_id) AS sessions_with_recalls,
+      COALESCE(SUM(observation_count), 0) AS total_observations_recalled,
+      COALESCE(SUM(discovery_tokens), 0) AS total_discovery_tokens,
+      COALESCE(SUM(estimated_savings), 0) AS total_estimated_savings
+    FROM mem_recalls
+  `).get();
+}
+
 export function closeDb() {
   if (db) {
     db.close();
@@ -392,6 +500,7 @@ export function closeDb() {
 export default {
   newSessionId,
   logInvocation,
+  logMemRecall,
   finalizeSession,
   getRecentSessions,
   getSessionModelBreakdown,
@@ -399,6 +508,9 @@ export default {
   getSessionModeBreakdown,
   getLifetimeStats,
   getLifetimeDetailedStats,
+  getLifetimeMemSavings,
+  getSessionMemSavings,
+  getSessionMemToolBreakdown,
   getEscalationPatterns,
   closeDb,
 };

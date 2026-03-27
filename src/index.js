@@ -17,6 +17,7 @@ import {
   newSessionId,
   logInvocation,
   getLifetimeDetailedStats,
+  getLifetimeMemSavings,
   closeDb,
 } from './logger.js';
 import { generateSessionReport, generateQuickSummary } from './reporter.js';
@@ -209,48 +210,60 @@ server.tool(
   async () => {
     try {
       const { totals, byModel, byTaskType, byMode } = getLifetimeDetailedStats();
+      const memSavings = getLifetimeMemSavings();
 
       const formatCost = (v) => `$${(v || 0).toFixed(4)}`;
+
+      const result = {
+        totals: {
+          sessions: totals.total_sessions,
+          invocations: totals.total_invocations,
+          input_tokens: totals.total_input_tokens,
+          output_tokens: totals.total_output_tokens,
+          cost: formatCost(totals.total_cost),
+          opus_baseline: formatCost(totals.total_opus_baseline),
+          savings_routing: formatCost(totals.total_savings),
+          savings_pct: `${(totals.savings_pct || 0).toFixed(1)}%`,
+        },
+        by_model: byModel.map(r => ({
+          model: r.model,
+          invocations: r.invocations,
+          input_tokens: r.input_tokens,
+          output_tokens: r.output_tokens,
+          cost: formatCost(r.cost),
+        })),
+        by_task_type: byTaskType.map(r => ({
+          task_type: r.task_type,
+          invocations: r.invocations,
+          tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
+          cost: formatCost(r.cost),
+        })),
+        by_interaction_mode: byMode.map(r => ({
+          mode: r.interaction_mode,
+          invocations: r.invocations,
+          tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
+          cost: formatCost(r.cost),
+        })),
+      };
+
+      if (memSavings && memSavings.total_recalls > 0) {
+        result.mem_recall_savings = {
+          total_recalls: memSavings.total_recalls,
+          sessions_with_recalls: memSavings.sessions_with_recalls,
+          observations_recalled: memSavings.total_observations_recalled,
+          discovery_tokens: memSavings.total_discovery_tokens,
+          estimated_savings: formatCost(memSavings.total_estimated_savings),
+          combined_savings: formatCost(
+            (totals.total_savings || 0) + (memSavings.total_estimated_savings || 0)
+          ),
+        };
+      }
 
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(
-              {
-                totals: {
-                  sessions: totals.total_sessions,
-                  invocations: totals.total_invocations,
-                  input_tokens: totals.total_input_tokens,
-                  output_tokens: totals.total_output_tokens,
-                  cost: formatCost(totals.total_cost),
-                  opus_baseline: formatCost(totals.total_opus_baseline),
-                  savings: formatCost(totals.total_savings),
-                  savings_pct: `${(totals.savings_pct || 0).toFixed(1)}%`,
-                },
-                by_model: byModel.map(r => ({
-                  model: r.model,
-                  invocations: r.invocations,
-                  input_tokens: r.input_tokens,
-                  output_tokens: r.output_tokens,
-                  cost: formatCost(r.cost),
-                })),
-                by_task_type: byTaskType.map(r => ({
-                  task_type: r.task_type,
-                  invocations: r.invocations,
-                  tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
-                  cost: formatCost(r.cost),
-                })),
-                by_interaction_mode: byMode.map(r => ({
-                  mode: r.interaction_mode,
-                  invocations: r.invocations,
-                  tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
-                  cost: formatCost(r.cost),
-                })),
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };
