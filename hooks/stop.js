@@ -194,6 +194,9 @@ function processTranscript(transcriptPath) {
     model,
     interactionMode: isSubagent ? 'agent' : 'direct',
     totalInput: allInputTokens,
+    baseInput: totalInput,
+    cacheCreate: totalCacheCreate,
+    cacheRead: totalCacheRead,
     totalOutput,
     estimatedCost,
     opusBaseline,
@@ -287,6 +290,9 @@ try {
       override_reason TEXT,
       input_tokens    INTEGER DEFAULT 0,
       output_tokens   INTEGER DEFAULT 0,
+      base_input_tokens    INTEGER DEFAULT 0,
+      cache_create_tokens  INTEGER DEFAULT 0,
+      cache_read_tokens    INTEGER DEFAULT 0,
       classifier_input_tokens  INTEGER DEFAULT 0,
       classifier_output_tokens INTEGER DEFAULT 0,
       estimated_cost  REAL DEFAULT 0,
@@ -311,12 +317,18 @@ try {
     CREATE INDEX IF NOT EXISTS idx_mem_session ON mem_recalls(session_id);
   `);
 
+  // Migration: add cache breakdown columns to existing databases
+  for (const col of ['base_input_tokens', 'cache_create_tokens', 'cache_read_tokens']) {
+    try { db.exec(`ALTER TABLE invocations ADD COLUMN ${col} INTEGER DEFAULT 0`); } catch (_) { /* exists */ }
+  }
+
   const insert = db.prepare(`
     INSERT INTO invocations (
       session_id, timestamp, prompt_preview, task_type, interaction_mode,
       actual_model, input_tokens, output_tokens,
+      base_input_tokens, cache_create_tokens, cache_read_tokens,
       estimated_cost, opus_baseline_cost, savings
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const r of results) {
@@ -329,6 +341,9 @@ try {
       r.model,
       r.totalInput,
       r.totalOutput,
+      r.baseInput,
+      r.cacheCreate,
+      r.cacheRead,
       r.estimatedCost,
       r.opusBaseline,
       r.savings,

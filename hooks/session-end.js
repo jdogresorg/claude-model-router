@@ -33,6 +33,9 @@ try {
       COUNT(*) AS invocations,
       COALESCE(SUM(input_tokens), 0) AS input_tokens,
       COALESCE(SUM(output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(base_input_tokens), 0) AS base_input_tokens,
+      COALESCE(SUM(cache_create_tokens), 0) AS cache_create_tokens,
+      COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
       COALESCE(SUM(estimated_cost), 0) AS cost,
       COALESCE(SUM(opus_baseline_cost), 0) AS opus_baseline,
       COALESCE(SUM(savings), 0) AS savings
@@ -48,7 +51,10 @@ try {
   }
 
   const savingsPct = last.opus_baseline > 0 ? (last.savings / last.opus_baseline) * 100 : 0;
-  const totalTokens = ((last.input_tokens || 0) + (last.output_tokens || 0)).toLocaleString();
+  const uniqueInput = (last.base_input_tokens || 0) + (last.cache_create_tokens || 0);
+  const uniqueTokens = (uniqueInput + last.output_tokens).toLocaleString();
+  const billingTokens = ((last.input_tokens || 0) + (last.output_tokens || 0)).toLocaleString();
+  const hasCacheData = (last.cache_read_tokens || 0) > 0;
 
   const line = '='.repeat(60);
   console.log();
@@ -56,7 +62,7 @@ try {
   console.log('  Model Router - Session Summary');
   console.log(line);
   console.log(`  Interactions:  ${last.invocations}`);
-  console.log(`  Tokens:        ${totalTokens}`);
+  console.log(`  Tokens:        ${hasCacheData ? `${uniqueTokens} unique (${billingTokens} billing)` : billingTokens}`);
   console.log(`  Cost:          ${fmt(last.cost)}`);
   console.log(`  Opus baseline: ${fmt(last.opus_baseline)}`);
   console.log(`  Savings:       ${fmt(last.savings)} (${pct(savingsPct)})`);

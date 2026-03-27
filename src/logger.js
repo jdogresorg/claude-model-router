@@ -71,6 +71,15 @@ function initSchema(database) {
     // Column already exists
   }
 
+  // Migration: add cache token breakdown columns
+  for (const col of ['base_input_tokens', 'cache_create_tokens', 'cache_read_tokens']) {
+    try {
+      database.exec(`ALTER TABLE invocations ADD COLUMN ${col} INTEGER DEFAULT 0`);
+    } catch (_) {
+      // Column already exists
+    }
+  }
+
   // Mem recall tracking — records when claude-mem tools are used to recall past work
   database.exec(`
     CREATE TABLE IF NOT EXISTS mem_recalls (
@@ -119,6 +128,9 @@ export function logInvocation({
   overrideReason,
   inputTokens = 0,
   outputTokens = 0,
+  baseInputTokens = 0,
+  cacheCreateTokens = 0,
+  cacheReadTokens = 0,
   classifierInputTokens = 0,
   classifierOutputTokens = 0,
   escalated = false,
@@ -147,6 +159,7 @@ export function logInvocation({
       session_id, prompt_preview, complexity, task_type, context_dep, interaction_mode, mixed,
       recommended_model, actual_model, override_reason,
       input_tokens, output_tokens,
+      base_input_tokens, cache_create_tokens, cache_read_tokens,
       classifier_input_tokens, classifier_output_tokens,
       estimated_cost, opus_baseline_cost, savings,
       escalated, duration_ms
@@ -154,6 +167,7 @@ export function logInvocation({
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?,
+      ?, ?, ?,
       ?, ?,
       ?, ?, ?,
       ?, ?
@@ -173,6 +187,9 @@ export function logInvocation({
     overrideReason || null,
     inputTokens,
     outputTokens,
+    baseInputTokens,
+    cacheCreateTokens,
+    cacheReadTokens,
     classifierInputTokens,
     classifierOutputTokens,
     totalCost,
@@ -199,7 +216,10 @@ export function finalizeSession(sessionId) {
       COALESCE(SUM(savings), 0)            AS total_savings,
       SUM(CASE WHEN escalated = 1 THEN 1 ELSE 0 END) AS escalations,
       SUM(input_tokens)           AS total_input_tokens,
-      SUM(output_tokens)          AS total_output_tokens
+      SUM(output_tokens)          AS total_output_tokens,
+      COALESCE(SUM(base_input_tokens), 0)    AS total_base_input_tokens,
+      COALESCE(SUM(cache_create_tokens), 0)  AS total_cache_create_tokens,
+      COALESCE(SUM(cache_read_tokens), 0)    AS total_cache_read_tokens
     FROM invocations
     WHERE session_id = ?
   `).get(sessionId);
@@ -335,6 +355,9 @@ export function getLifetimeDetailedStats() {
       COUNT(*) AS total_invocations,
       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+      COALESCE(SUM(base_input_tokens), 0) AS total_base_input_tokens,
+      COALESCE(SUM(cache_create_tokens), 0) AS total_cache_create_tokens,
+      COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
       COALESCE(SUM(estimated_cost), 0) AS total_cost,
       COALESCE(SUM(opus_baseline_cost), 0) AS total_opus_baseline,
       COALESCE(SUM(savings), 0) AS total_savings,
@@ -351,6 +374,9 @@ export function getLifetimeDetailedStats() {
       COUNT(*) AS invocations,
       SUM(input_tokens) AS input_tokens,
       SUM(output_tokens) AS output_tokens,
+      COALESCE(SUM(base_input_tokens), 0) AS base_input_tokens,
+      COALESCE(SUM(cache_create_tokens), 0) AS cache_create_tokens,
+      COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
       SUM(estimated_cost) AS cost
     FROM invocations
     GROUP BY actual_model

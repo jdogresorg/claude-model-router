@@ -126,6 +126,9 @@ try {
       COUNT(*) AS invocations,
       COALESCE(SUM(input_tokens), 0) AS input_tokens,
       COALESCE(SUM(output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(base_input_tokens), 0) AS base_input_tokens,
+      COALESCE(SUM(cache_create_tokens), 0) AS cache_create_tokens,
+      COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
       COALESCE(SUM(estimated_cost), 0) AS cost,
       COALESCE(SUM(opus_baseline_cost), 0) AS opus_baseline,
       COALESCE(SUM(savings), 0) AS savings
@@ -139,14 +142,21 @@ try {
   }
 
   const savingsPct = row.opus_baseline > 0 ? (row.savings / row.opus_baseline) * 100 : 0;
-  const totalTokens = (row.input_tokens + row.output_tokens).toLocaleString();
+  const uniqueInput = (row.base_input_tokens || 0) + (row.cache_create_tokens || 0);
+  const uniqueTokens = (uniqueInput + row.output_tokens).toLocaleString();
+  const billingTokens = (row.input_tokens + row.output_tokens).toLocaleString();
+  // Show unique tokens prominently, billing tokens in parens if cache data exists
+  const hasCacheData = (row.cache_read_tokens || 0) > 0;
+  const tokensDisplay = hasCacheData
+    ? `${uniqueTokens} unique (${billingTokens} billing incl. cache reads)`
+    : billingTokens;
 
   const lines = [];
 
   lines.push(
     `[model-router] Lifetime: ${row.sessions} sessions, ${row.invocations} interactions | ` +
     `Cost: ${fmt(row.cost)} (saved ${fmt(row.savings)}, ${pct(savingsPct)}) | ` +
-    `Tokens: ${totalTokens}`
+    `Tokens: ${tokensDisplay}`
   );
 
   // By model breakdown

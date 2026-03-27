@@ -37,8 +37,8 @@ export function generateSessionReport(sessionId) {
   lines.push(`| Metric | Value |`);
   lines.push(`|---|---|`);
   lines.push(`| Invocations | ${stats.total_invocations} |`);
-  lines.push(`| Input tokens | ${stats.total_input_tokens || 0} |`);
-  lines.push(`| Output tokens | ${stats.total_output_tokens || 0} |`);
+  lines.push(`| Input tokens (billing) | ${(stats.total_input_tokens || 0).toLocaleString()} |`);
+  lines.push(`| Output tokens | ${(stats.total_output_tokens || 0).toLocaleString()} |`);
   lines.push(`| Total cost | $${stats.total_cost.toFixed(4)} |`);
   lines.push(`| All-Opus baseline | $${stats.total_opus_baseline.toFixed(4)} |`);
   lines.push(`| Savings | $${stats.total_savings.toFixed(4)} (${stats.savingsPct.toFixed(1)}%) |`);

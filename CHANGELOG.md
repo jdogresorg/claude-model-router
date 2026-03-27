@@ -2,6 +2,17 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.5.2] - 2026-03-26
+
+### Added
+
+- Cache token breakdown: new `base_input_tokens`, `cache_create_tokens`, `cache_read_tokens` columns in invocations table
+- "Unique tokens" metric that excludes cache reads (which re-count the same context on every turn)
+- `lifetime_stats` now returns `billing_tokens`, `unique_tokens`, and `token_breakdown` with all 4 categories
+- Per-model stats show `billing_tokens`, `unique_tokens`, and `cache_read_tokens`
+- Session-start/end banners show "X unique (Y billing incl. cache reads)" when cache data exists
+- Auto-migration for existing databases (new columns default to 0 for historical rows)
+
 ## [0.5.0] - 2026-03-26
 
 ### Added

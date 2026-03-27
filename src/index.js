@@ -214,13 +214,25 @@ server.tool(
       const memSavings = getLifetimeMemSavings();
 
       const formatCost = (v) => `$${(v || 0).toFixed(4)}`;
+      const fmtTokens = (v) => (v || 0).toLocaleString();
+
+      // "Unique" tokens = base input + cache writes + output (excludes cache reads which re-count the same content)
+      const uniqueInputTokens = (totals.total_base_input_tokens || 0) + (totals.total_cache_create_tokens || 0);
+      const uniqueTokens = uniqueInputTokens + (totals.total_output_tokens || 0);
+      const billingTokens = (totals.total_input_tokens || 0) + (totals.total_output_tokens || 0);
 
       const result = {
         totals: {
           sessions: totals.total_sessions,
           invocations: totals.total_invocations,
-          input_tokens: totals.total_input_tokens,
-          output_tokens: totals.total_output_tokens,
+          billing_tokens: billingTokens,
+          unique_tokens: uniqueTokens,
+          token_breakdown: {
+            base_input: totals.total_base_input_tokens || 0,
+            cache_create: totals.total_cache_create_tokens || 0,
+            cache_read: totals.total_cache_read_tokens || 0,
+            output: totals.total_output_tokens || 0,
+          },
           cost: formatCost(totals.total_cost),
           opus_baseline: formatCost(totals.total_opus_baseline),
           savings_routing: formatCost(totals.total_savings),
@@ -229,8 +241,9 @@ server.tool(
         by_model: byModel.map(r => ({
           model: r.model,
           invocations: r.invocations,
-          input_tokens: r.input_tokens,
-          output_tokens: r.output_tokens,
+          billing_tokens: (r.input_tokens || 0) + (r.output_tokens || 0),
+          unique_tokens: (r.base_input_tokens || 0) + (r.cache_create_tokens || 0) + (r.output_tokens || 0),
+          cache_read_tokens: r.cache_read_tokens || 0,
           cost: formatCost(r.cost),
         })),
         by_task_type: byTaskType.map(r => ({
