@@ -2,6 +2,15 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.4.3] - 2026-03-26
+
+### Changed
+
+- Rewrote model routing rules: two-step decision (agent type hard rules, then task classification for general-purpose)
+- Added hard model assignments for Explore, claude-code-guide, statusline-setup, and Plan agent types
+- Added escalation policy (retry at next tier on subagent failure)
+- Rewrote README: plugin install flow, session status display docs, token tracking docs, CLAUDE.md auto-injection docs, updated routing rules section
+
 ## [0.4.2] - 2026-03-26
 
 ### Added

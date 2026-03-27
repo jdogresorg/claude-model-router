@@ -22,41 +22,43 @@ const MARKER_END = '<!-- claude-model-router:end -->';
 const ROUTING_SNIPPET = `${MARKER_START}
 ## REQUIRED: Cost-Optimized Model Selection for Subagents
 
-When using the Agent tool, you MUST set the \`model\` parameter based on the subagent type and task. Do NOT leave it unset (defaults to opus). Use the cheapest model that can handle the task:
+When using the Agent tool, you MUST set the \`model\` parameter. Never omit it.
 
-### Model Assignment Rules
+### Step 1: Match by agent type (hard rules)
 
-**Use \`model: "haiku"\` for:**
-- Explore agents (file searches, grep, codebase navigation, "find all X")
-- Simple lookups, listing files, checking if something exists
-- Formatting, linting, or mechanical transformations
+| subagent_type | model | Always? |
+|---|---|---|
+| Explore | haiku | Yes |
+| claude-code-guide | haiku | Yes |
+| statusline-setup | haiku | Yes |
+| Plan | sonnet | Default — use opus only for ambiguous architectural trade-offs |
+| general-purpose | (see Step 2) | |
 
-**Use \`model: "sonnet"\` for:**
-- general-purpose agents doing research, reading docs, summarizing code
-- Code review, test generation, writing documentation
-- Plan agents for straightforward feature planning
-- Any agent task involving code generation that follows clear patterns
+### Step 2: For general-purpose agents, match by task
 
-**Use \`model: "opus"\` only for:**
-- Complex multi-file refactors requiring deep reasoning
-- Debugging with hypothesis generation across multiple systems
-- Architectural planning with significant trade-offs
-- Tasks where a cheaper model already failed or produced poor results
+**haiku** — single-skill, no judgment needed:
+- Git operations (status, log, diff, blame)
+- Running a build or test suite and reporting results
+- Listing, counting, or checking existence of files
+- Formatting, linting, mechanical find-and-replace
 
-### Examples
+**sonnet** — reasoning + generation within a bounded scope:
+- Reading code and summarizing how it works
+- Writing or updating tests for existing code
+- Code review and suggesting improvements
+- Writing docs, commit messages, or PR descriptions
+- Implementing a feature that follows clear patterns (3 files or fewer)
+- Research tasks (web search, doc lookup, reading APIs)
 
-\`\`\`
-// Searching for files — use haiku
-Agent(subagent_type: "Explore", model: "haiku", prompt: "find all files importing Database")
+**opus** — deep reasoning across many files or ambiguous requirements:
+- Multi-file refactors that must stay internally consistent
+- Debugging that requires forming and testing hypotheses across systems
+- Architectural design with significant trade-offs
+- Any task where a sonnet agent already produced poor results
 
-// Research task — use sonnet
-Agent(subagent_type: "general-purpose", model: "sonnet", prompt: "how does the auth middleware work")
+### Escalation
 
-// Complex refactor — use opus
-Agent(subagent_type: "general-purpose", model: "opus", prompt: "refactor the pipeline to support batching with error recovery")
-\`\`\`
-
-Always set the model parameter. Never omit it.
+If a subagent's output is clearly wrong or incomplete, retry once with the next model tier (haiku to sonnet, sonnet to opus). Do not retry at the same tier.
 ${MARKER_END}`;
 
 function ensureClaudeMdSnippet() {
