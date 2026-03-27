@@ -38,26 +38,36 @@ Everything is automatic:
 | Component | File | Purpose |
 |---|---|---|
 | MCP server | `src/index.js` | Provides `route_task`, `session_report`, `lifetime_stats`, and other tools |
-| Stop hook | `hooks/stop.js` | Logs token usage from transcripts after every response |
-| Session-start hook | `hooks/session-start.js` | Displays stats and injects CLAUDE.md routing instructions |
+| Stop hook | `hooks/stop.js` | Logs token usage and claude-mem recalls from transcripts after every response |
+| Session-start hook | `hooks/session-start.js` | Displays status banner and injects CLAUDE.md routing instructions |
+| Session-end hook | `hooks/session-end.js` | Prints a colorized session summary when exiting |
 
 ## Session Status Display
 
-At the start of every conversation, the session-start hook prints a status banner to the terminal and injects the same data into Claude's context. The output looks like this:
+At the start of every conversation, the session-start hook prints a colorized status banner to the terminal and injects a plain-text version into Claude's context. The banner is split into **Last Session** and **Lifetime** sections:
 
 ```
-[model-router] Lifetime: 17 sessions, 66 interactions | Cost: $763.26 (saved $510.85, 40.1%) | Tokens: 83,539,154
-[model-router] By model: opus:45($668.97) | sonnet:9($84.57) | haiku:12($9.72)
-[model-router] Last session: 11 interactions, cost $102.37, saved $349.65 (2026-03-27T00:16 to 2026-03-27T00:16)
+  [claude-model-router]
+        Last Session (2026-03-27T03:51 to 2026-03-27T04:19)
+            claude-mem   : 3 lookups | 2 observations | saved $1.42
+            model-router : 8 interactions | 15,073,016 tokens | cost $22.96 (saved $11.33)
+            models used  : opus: 6 ($21.02) | sonnet: 1 ($1.68) | haiku: 1 ($0.26)
+            total costs  : $22.96 | Saved $12.75 | 35.7% savings
+        Lifetime
+            claude-mem   : 76 lookups | 4 observations | saved $5.19 (2,226 in knowledge base)
+            model-router : 8 sessions | 125 interactions | 285,015,064 tokens | cost $485.16 (saved $296.30)
+            models used  : opus: 58 ($421.80) | sonnet: 56 ($60.25) | haiku: 11 ($3.11)
+            total costs  : $485.16 | Saved $301.49 | 38.6% savings
 ```
 
-**Line 1 — Lifetime totals:** Total sessions, interactions, cumulative cost, savings vs. all-Opus baseline, and total tokens processed.
+Each section shows:
 
-**Line 2 — Model breakdown:** How many interactions used each model tier and the cost attributed to each.
+- **claude-mem** — Recall stats from the [claude-mem](https://github.com/anthropics/claude-mem) knowledge base (lookups, observations retrieved, estimated savings from avoiding re-discovery). If claude-mem is installed but no recalls have occurred, shows the knowledge base size. If claude-mem is not installed, this line is omitted.
+- **model-router** — Interaction count, total tokens processed, cost, and savings vs. an all-Opus baseline.
+- **models used** — Per-model breakdown with invocation counts and costs. Model names are color-coded (magenta for Opus, blue for Sonnet, cyan for Haiku).
+- **total costs** — Combined cost, combined savings (model-router + claude-mem), and overall savings percentage.
 
-**Line 3 — Last session:** A quick summary of the most recent session's activity, cost, and savings.
-
-This gives you an at-a-glance picture of your cost efficiency every time you start Claude Code.
+In the terminal, the banner uses ANSI colors: cyan header, yellow costs, green savings, and per-model colors. The version injected into Claude's context is plain text.
 
 ## Token Tracking
 
