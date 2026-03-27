@@ -148,6 +148,17 @@ The `route_task` MCP tool provides an alternative automated path — it sends a 
 | Medium | High | Opus |
 | Complex | Any | Opus |
 
+## Works Great With claude-mem
+
+This plugin integrates with [claude-mem](https://github.com/thedotmack/claude-mem), a persistent cross-session memory system for Claude Code. When both plugins are installed, they complement each other to reduce token usage and API costs:
+
+- **claude-mem reduces input tokens** — By recalling past discoveries, debugging sessions, and architectural decisions from its knowledge base, Claude avoids re-reading files and re-discovering context it has already learned. This directly cuts the input tokens billed on every turn.
+- **model-router reduces output cost** — By routing simple sub-tasks to cheaper models (Haiku/Sonnet instead of Opus), the cost per output token drops significantly.
+- **Combined savings are tracked** — The session status banner shows savings from both systems side by side, with a combined total. The stop hook automatically detects claude-mem tool calls in transcripts and logs recall events to the model-router database.
+- **Knowledge base stats at a glance** — Even before any recalls happen, the banner shows how many observations are stored in claude-mem's knowledge base, so you can see the value accumulating.
+
+No configuration is needed — if claude-mem is installed, the model-router detects it automatically by reading its SQLite database at `~/.claude-mem/claude-mem.db`.
+
 ## Data Storage
 
 All data is stored in a local SQLite database (`~/.claude/.claude-model-router.db` by default). Nothing is sent externally beyond the Haiku classifier API calls (only when `route_task` is invoked).
