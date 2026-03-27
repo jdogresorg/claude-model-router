@@ -11,9 +11,81 @@
 import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 const DB_PATH = process.env.ROUTER_DB_PATH || resolve(homedir(), '.claude', '.claude-model-router.db');
+const CLAUDE_MD_PATH = resolve(homedir(), '.claude', 'CLAUDE.md');
+
+const MARKER_START = '<!-- claude-model-router:start -->';
+const MARKER_END = '<!-- claude-model-router:end -->';
+
+const ROUTING_SNIPPET = `${MARKER_START}
+## REQUIRED: Cost-Optimized Model Selection for Subagents
+
+When using the Agent tool, you MUST set the \`model\` parameter based on the subagent type and task. Do NOT leave it unset (defaults to opus). Use the cheapest model that can handle the task:
+
+### Model Assignment Rules
+
+**Use \`model: "haiku"\` for:**
+- Explore agents (file searches, grep, codebase navigation, "find all X")
+- Simple lookups, listing files, checking if something exists
+- Formatting, linting, or mechanical transformations
+
+**Use \`model: "sonnet"\` for:**
+- general-purpose agents doing research, reading docs, summarizing code
+- Code review, test generation, writing documentation
+- Plan agents for straightforward feature planning
+- Any agent task involving code generation that follows clear patterns
+
+**Use \`model: "opus"\` only for:**
+- Complex multi-file refactors requiring deep reasoning
+- Debugging with hypothesis generation across multiple systems
+- Architectural planning with significant trade-offs
+- Tasks where a cheaper model already failed or produced poor results
+
+### Examples
+
+\`\`\`
+// Searching for files — use haiku
+Agent(subagent_type: "Explore", model: "haiku", prompt: "find all files importing Database")
+
+// Research task — use sonnet
+Agent(subagent_type: "general-purpose", model: "sonnet", prompt: "how does the auth middleware work")
+
+// Complex refactor — use opus
+Agent(subagent_type: "general-purpose", model: "opus", prompt: "refactor the pipeline to support batching with error recovery")
+\`\`\`
+
+Always set the model parameter. Never omit it.
+${MARKER_END}`;
+
+function ensureClaudeMdSnippet() {
+  try {
+    const dir = resolve(homedir(), '.claude');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    if (existsSync(CLAUDE_MD_PATH)) {
+      const content = readFileSync(CLAUDE_MD_PATH, 'utf-8');
+      if (content.includes(MARKER_START)) {
+        // Update existing snippet if changed
+        const re = new RegExp(
+          MARKER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+          '[\\s\\S]*?' +
+          MARKER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        );
+        const updated = content.replace(re, ROUTING_SNIPPET);
+        if (updated !== content) writeFileSync(CLAUDE_MD_PATH, updated);
+        return;
+      }
+      // Append snippet
+      writeFileSync(CLAUDE_MD_PATH, content.trimEnd() + '\n\n' + ROUTING_SNIPPET + '\n');
+    } else {
+      writeFileSync(CLAUDE_MD_PATH, ROUTING_SNIPPET + '\n');
+    }
+  } catch {
+    // Non-fatal — don't block session start
+  }
+}
 
 function fmt(val) {
   return val < 1 ? `$${val.toFixed(4)}` : `$${val.toFixed(2)}`;
@@ -37,6 +109,8 @@ function output(additionalContext, systemMessage) {
 }
 
 try {
+  ensureClaudeMdSnippet();
+
   if (!existsSync(DB_PATH)) {
     output('[model-router] No data yet (database not found).');
     process.exit(0);

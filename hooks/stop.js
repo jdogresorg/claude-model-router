@@ -13,9 +13,9 @@
  */
 
 import Database from 'better-sqlite3';
-import { resolve } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -41,31 +41,18 @@ function normalizeModel(apiModel) {
   return 'opus';
 }
 
-// ── Main ────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────
 
-try {
-  // Read hook input from stdin
-  const input = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
-  const { session_id, transcript_path } = input;
+function processTranscript(transcriptPath) {
+  if (!transcriptPath || !existsSync(transcriptPath)) return null;
 
-  if (!transcript_path || !existsSync(transcript_path)) {
-    process.exit(0);
-  }
-
-  // State file tracks how many lines we've already processed for this transcript
-  if (!existsSync(STATE_DIR)) {
-    mkdirSync(STATE_DIR, { recursive: true });
-  }
-
-  // Use transcript filename as state key
-  const transcriptKey = transcript_path.replace(/[^a-zA-Z0-9]/g, '_');
+  const transcriptKey = transcriptPath.replace(/[^a-zA-Z0-9]/g, '_');
   const stateFile = resolve(STATE_DIR, `${transcriptKey}.offset`);
   const lastOffset = existsSync(stateFile)
     ? parseInt(readFileSync(stateFile, 'utf-8').trim(), 10) || 0
     : 0;
 
-  // Read transcript and find new assistant entries with usage data
-  const content = readFileSync(transcript_path, 'utf-8');
+  const content = readFileSync(transcriptPath, 'utf-8');
   const lines = content.trimEnd().split('\n');
 
   const newEntries = [];
@@ -74,7 +61,6 @@ try {
       const entry = JSON.parse(lines[i]);
       if (entry.type === 'assistant' && entry.message?.usage) {
         const usage = entry.message.usage;
-        // Only count entries with actual output (skip streaming partials with 0 output)
         if (usage.output_tokens > 0) {
           newEntries.push({
             model: normalizeModel(entry.message.model),
@@ -92,43 +78,86 @@ try {
     }
   }
 
-  // Save new offset
   writeFileSync(stateFile, String(lines.length));
 
-  if (newEntries.length === 0) {
-    process.exit(0);
-  }
+  if (newEntries.length === 0) return null;
 
-  // Aggregate all new entries into a single invocation record for this turn.
-  // A single "turn" may have multiple API calls (tool_use -> continue -> end_turn).
   let totalInput = 0;
   let totalOutput = 0;
   let model = 'opus';
-
   for (const e of newEntries) {
     totalInput += e.inputTokens;
     totalOutput += e.outputTokens;
-    model = e.model; // use the last one (they should all be the same)
+    model = e.model;
   }
 
-  // Determine interaction mode from transcript context
-  // Subagent transcripts are in a /subagents/ directory
-  const interactionMode = transcript_path.includes('/subagents/')
-    ? 'agent' : 'direct';
-
-  // Calculate costs
+  const isSubagent = transcriptPath.includes('/subagents/');
   const pricing = MODEL_PRICING[model] || MODEL_PRICING.opus;
   const estimatedCost = totalInput * pricing.input + totalOutput * pricing.output;
   const opusBaseline = totalInput * MODEL_PRICING.opus.input +
     totalOutput * MODEL_PRICING.opus.output;
-  const savings = opusBaseline - estimatedCost;
 
-  // Write to DB
+  return {
+    model,
+    interactionMode: isSubagent ? 'agent' : 'direct',
+    totalInput,
+    totalOutput,
+    estimatedCost,
+    opusBaseline,
+    savings: opusBaseline - estimatedCost,
+    apiCalls: newEntries.length,
+    stopReason: newEntries.at(-1)?.stopReason || 'unknown',
+  };
+}
+
+function findSubagentTranscripts(mainTranscriptPath) {
+  // Session dir is either the parent, or the parent has a subagents/ folder
+  // Main transcript: /.../<session-id>.jsonl
+  // Session dir:     /.../<session-id>/subagents/*.jsonl
+  const sessionDirName = basename(mainTranscriptPath, '.jsonl');
+  const sessionDir = resolve(dirname(mainTranscriptPath), sessionDirName, 'subagents');
+
+  if (!existsSync(sessionDir)) return [];
+
+  return readdirSync(sessionDir)
+    .filter(f => f.endsWith('.jsonl'))
+    .map(f => resolve(sessionDir, f));
+}
+
+// ── Main ────────────────────────────────────────────────────────────────
+
+try {
+  const input = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
+  const { session_id, transcript_path } = input;
+
+  if (!transcript_path || !existsSync(transcript_path)) {
+    process.exit(0);
+  }
+
+  if (!existsSync(STATE_DIR)) {
+    mkdirSync(STATE_DIR, { recursive: true });
+  }
+
+  // Process main transcript + all subagent transcripts
+  const results = [];
+
+  const mainResult = processTranscript(transcript_path);
+  if (mainResult) results.push(mainResult);
+
+  for (const subPath of findSubagentTranscripts(transcript_path)) {
+    const subResult = processTranscript(subPath);
+    if (subResult) results.push(subResult);
+  }
+
+  if (results.length === 0) {
+    process.exit(0);
+  }
+
+  // Write all results to DB
   const db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 3000');
 
-  // Ensure schema exists (in case hook runs before MCP server)
   db.exec(`
     CREATE TABLE IF NOT EXISTS invocations (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,25 +186,29 @@ try {
     CREATE INDEX IF NOT EXISTS idx_inv_timestamp ON invocations(timestamp);
   `);
 
-  db.prepare(`
+  const insert = db.prepare(`
     INSERT INTO invocations (
       session_id, timestamp, prompt_preview, task_type, interaction_mode,
       actual_model, input_tokens, output_tokens,
       estimated_cost, opus_baseline_cost, savings
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    session_id,
-    new Date().toISOString(),
-    `[auto] ${newEntries.length} API call(s), ${newEntries.at(-1)?.stopReason || 'unknown'}`,
-    'auto',
-    interactionMode,
-    model,
-    totalInput,
-    totalOutput,
-    estimatedCost,
-    opusBaseline,
-    savings,
-  );
+  `);
+
+  for (const r of results) {
+    insert.run(
+      session_id,
+      new Date().toISOString(),
+      `[auto] ${r.apiCalls} API call(s), ${r.stopReason}`,
+      'auto',
+      r.interactionMode,
+      r.model,
+      r.totalInput,
+      r.totalOutput,
+      r.estimatedCost,
+      r.opusBaseline,
+      r.savings,
+    );
+  }
 
   db.close();
 

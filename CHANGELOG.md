@@ -2,6 +2,18 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.4.2] - 2026-03-26
+
+### Added
+
+- Session-start hook auto-injects model routing instructions into `~/.claude/CLAUDE.md` (idempotent, marker-delimited)
+- Stop hook now discovers and processes subagent transcripts alongside the main transcript
+
+### Changed
+
+- Stop hook refactored: transcript processing extracted into reusable `processTranscript()` helper
+- Each subagent interaction is logged as a separate invocation row with `interaction_mode = 'agent'`
+
 ## [0.4.1] - 2026-03-26
 
 ### Fixed
