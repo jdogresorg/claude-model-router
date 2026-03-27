@@ -11,6 +11,20 @@ import { existsSync } from 'node:fs';
 
 const DB_PATH = process.env.ROUTER_DB_PATH || resolve(homedir(), '.claude', '.claude-model-router.db');
 
+// ANSI color helpers
+const c = {
+  reset:   '\x1b[0m',
+  bold:    '\x1b[1m',
+  dim:     '\x1b[2m',
+  cyan:    '\x1b[36m',
+  green:   '\x1b[32m',
+  yellow:  '\x1b[33m',
+  magenta: '\x1b[35m',
+  blue:    '\x1b[34m',
+  white:   '\x1b[97m',
+  gray:    '\x1b[90m',
+};
+
 function fmt(val) {
   return val < 1 ? `$${val.toFixed(4)}` : `$${val.toFixed(2)}`;
 }
@@ -22,7 +36,12 @@ function pct(val) {
 try {
   if (!existsSync(DB_PATH)) process.exit(0);
 
-  const db = new Database(DB_PATH, { readonly: true });
+  const db = new Database(DB_PATH);
+
+  // Migration: ensure cache breakdown columns exist
+  for (const col of ['base_input_tokens', 'cache_create_tokens', 'cache_read_tokens']) {
+    try { db.exec(`ALTER TABLE invocations ADD COLUMN ${col} INTEGER DEFAULT 0`); } catch (_) { /* exists */ }
+  }
 
   // Get the most recent session's stats
   const last = db.prepare(`
@@ -56,17 +75,19 @@ try {
   const billingTokens = ((last.input_tokens || 0) + (last.output_tokens || 0)).toLocaleString();
   const hasCacheData = (last.cache_read_tokens || 0) > 0;
 
-  const line = '='.repeat(60);
+  const border = `${c.cyan}${'─'.repeat(58)}${c.reset}`;
+  const tokensStr = hasCacheData ? `${uniqueTokens} unique ${c.gray}(${billingTokens} billing)${c.reset}` : billingTokens;
+
   console.log();
-  console.log(line);
-  console.log('  Model Router - Session Summary');
-  console.log(line);
-  console.log(`  Interactions:  ${last.invocations}`);
-  console.log(`  Tokens:        ${hasCacheData ? `${uniqueTokens} unique (${billingTokens} billing)` : billingTokens}`);
-  console.log(`  Cost:          ${fmt(last.cost)}`);
-  console.log(`  Opus baseline: ${fmt(last.opus_baseline)}`);
-  console.log(`  Savings:       ${fmt(last.savings)} (${pct(savingsPct)})`);
-  console.log(`  Duration:      ${last.started.slice(0, 16)} to ${last.ended.slice(0, 16)}`);
+  console.log(`  ${border}`);
+  console.log(`  ${c.bold}${c.cyan}  Model Router ${c.gray}─ Session Summary${c.reset}`);
+  console.log(`  ${border}`);
+  console.log(`  ${c.gray}  Interactions:${c.reset}  ${c.white}${last.invocations}${c.reset}`);
+  console.log(`  ${c.gray}  Tokens:${c.reset}        ${c.white}${tokensStr}${c.reset}`);
+  console.log(`  ${c.gray}  Cost:${c.reset}          ${c.yellow}${fmt(last.cost)}${c.reset}`);
+  console.log(`  ${c.gray}  Opus baseline:${c.reset} ${c.dim}${fmt(last.opus_baseline)}${c.reset}`);
+  console.log(`  ${c.gray}  Savings:${c.reset}       ${c.green}${c.bold}${fmt(last.savings)}${c.reset} ${c.green}(${pct(savingsPct)})${c.reset}`);
+  console.log(`  ${c.gray}  Duration:${c.reset}      ${c.gray}${last.started.slice(0, 16)} to ${last.ended.slice(0, 16)}${c.reset}`);
 
   // Task type breakdown
   const tasks = db.prepare(`
@@ -75,10 +96,11 @@ try {
   `).all(last.session_id);
 
   if (tasks.length) {
-    console.log(`  Tasks:         ${tasks.map(t => `${t.task_type}:${t.n}`).join(', ')}`);
+    const taskParts = tasks.map(t => `${c.white}${t.task_type}${c.reset}${c.gray}:${c.reset}${t.n}`);
+    console.log(`  ${c.gray}  Tasks:${c.reset}         ${taskParts.join(', ')}`);
   }
 
-  console.log(line);
+  console.log(`  ${border}`);
   console.log();
 
   db.close();

@@ -2,6 +2,22 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.5.3] - 2026-03-26
+
+### Added
+
+- Redesigned session-start banner with structured Last Session / Lifetime layout
+- Colorized ANSI output: cyan header, magenta/blue/cyan model names, yellow costs, green savings
+- Session-end banner with box-drawn borders and colorized stats
+- claude-mem knowledge base stats shown even when no recalls have been logged yet
+- Backfill script (`scripts/backfill-mem-recalls.js`) to retroactively detect claude-mem tool calls missed before v0.5.0
+- DB migration in session-start/end hooks so new cache columns exist before querying
+
+### Fixed
+
+- Session-start/end hooks crashed silently when cache breakdown columns didn't exist yet (opened DB as readonly, couldn't migrate)
+- Historical claude-mem tool calls (76 across all projects) were never logged because stop hook offsets had already advanced past them
+
 ## [0.5.2] - 2026-03-26
 
 ### Added

@@ -13,6 +13,10 @@ import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
+const CLAUDE_MEM_DB_PATH = process.env.CLAUDE_MEM_DATA_DIR
+  ? resolve(process.env.CLAUDE_MEM_DATA_DIR, 'claude-mem.db')
+  : resolve(homedir(), '.claude-mem', 'claude-mem.db');
+
 const DB_PATH = process.env.ROUTER_DB_PATH || resolve(homedir(), '.claude', '.claude-model-router.db');
 const CLAUDE_MD_PATH = resolve(homedir(), '.claude', 'CLAUDE.md');
 
@@ -89,6 +93,28 @@ function ensureClaudeMdSnippet() {
   }
 }
 
+// ANSI color helpers
+const c = {
+  reset:   '\x1b[0m',
+  bold:    '\x1b[1m',
+  dim:     '\x1b[2m',
+  cyan:    '\x1b[36m',
+  green:   '\x1b[32m',
+  yellow:  '\x1b[33m',
+  magenta: '\x1b[35m',
+  blue:    '\x1b[34m',
+  white:   '\x1b[97m',
+  gray:    '\x1b[90m',
+  bgCyan:  '\x1b[46m',
+  bgBlue:  '\x1b[44m',
+};
+
+const MODEL_COLORS = {
+  opus:   c.magenta,
+  sonnet: c.blue,
+  haiku:  c.cyan,
+};
+
 function fmt(val) {
   return val < 1 ? `$${val.toFixed(4)}` : `$${val.toFixed(2)}`;
 }
@@ -118,7 +144,12 @@ try {
     process.exit(0);
   }
 
-  const db = new Database(DB_PATH, { readonly: true });
+  const db = new Database(DB_PATH);
+
+  // Migration: ensure cache breakdown columns exist
+  for (const col of ['base_input_tokens', 'cache_create_tokens', 'cache_read_tokens']) {
+    try { db.exec(`ALTER TABLE invocations ADD COLUMN ${col} INTEGER DEFAULT 0`); } catch (_) { /* exists */ }
+  }
 
   const row = db.prepare(`
     SELECT
@@ -141,80 +172,148 @@ try {
     process.exit(0);
   }
 
-  const savingsPct = row.opus_baseline > 0 ? (row.savings / row.opus_baseline) * 100 : 0;
-  const uniqueInput = (row.base_input_tokens || 0) + (row.cache_create_tokens || 0);
-  const uniqueTokens = (uniqueInput + row.output_tokens).toLocaleString();
-  const billingTokens = (row.input_tokens + row.output_tokens).toLocaleString();
-  // Show unique tokens prominently, billing tokens in parens if cache data exists
-  const hasCacheData = (row.cache_read_tokens || 0) > 0;
-  const tokensDisplay = hasCacheData
-    ? `${uniqueTokens} unique (${billingTokens} billing incl. cache reads)`
-    : billingTokens;
+  // ── Gather all data ──────────────────────────────────────────────────
 
-  const lines = [];
+  // Lifetime totals
+  const lifetimeSavingsPct = row.opus_baseline > 0 ? (row.savings / row.opus_baseline) * 100 : 0;
+  const lifetimeTokens = (row.input_tokens + row.output_tokens).toLocaleString();
 
-  lines.push(
-    `[model-router] Lifetime: ${row.sessions} sessions, ${row.invocations} interactions | ` +
-    `Cost: ${fmt(row.cost)} (saved ${fmt(row.savings)}, ${pct(savingsPct)}) | ` +
-    `Tokens: ${tokensDisplay}`
-  );
-
-  // By model breakdown
-  const models = db.prepare(`
+  // Lifetime models
+  const lifetimeModels = db.prepare(`
     SELECT actual_model AS model, COUNT(*) AS n, SUM(estimated_cost) AS cost
     FROM invocations GROUP BY actual_model ORDER BY cost DESC
   `).all();
 
-  if (models.length) {
-    const parts = models.map(m => `${m.model}:${m.n}(${fmt(m.cost)})`);
-    lines.push(`[model-router] By model: ${parts.join(' | ')}`);
-  }
+  // Last session
+  const last = db.prepare(`
+    SELECT session_id, MIN(timestamp) AS started, MAX(timestamp) AS ended,
+           COUNT(*) AS n,
+           COALESCE(SUM(input_tokens), 0) AS input_tokens,
+           COALESCE(SUM(output_tokens), 0) AS output_tokens,
+           COALESCE(SUM(estimated_cost), 0) AS cost,
+           COALESCE(SUM(opus_baseline_cost), 0) AS opus_baseline,
+           COALESCE(SUM(savings), 0) AS savings
+    FROM invocations GROUP BY session_id ORDER BY started DESC LIMIT 1
+  `).get();
 
-  // claude-mem recall savings
+  const lastSavingsPct = last && last.opus_baseline > 0 ? (last.savings / last.opus_baseline) * 100 : 0;
+  const lastTokens = last ? ((last.input_tokens || 0) + (last.output_tokens || 0)).toLocaleString() : '0';
+
+  // Last session models
+  const lastModels = last ? db.prepare(`
+    SELECT actual_model AS model, COUNT(*) AS n, SUM(estimated_cost) AS cost
+    FROM invocations WHERE session_id = ? GROUP BY actual_model ORDER BY cost DESC
+  `).all(last.session_id) : [];
+
+  // claude-mem data
   const memTableExists = db.prepare(`
     SELECT name FROM sqlite_master WHERE type='table' AND name='mem_recalls'
   `).get();
 
+  let lifetimeMem = null;
+  let lastMem = null;
   if (memTableExists) {
-    const mem = db.prepare(`
-      SELECT
-        COUNT(*) AS recalls,
-        COALESCE(SUM(observation_count), 0) AS observations,
-        COALESCE(SUM(discovery_tokens), 0) AS tokens,
-        COALESCE(SUM(estimated_savings), 0) AS savings
+    lifetimeMem = db.prepare(`
+      SELECT COUNT(*) AS recalls, COALESCE(SUM(observation_count), 0) AS observations,
+             COALESCE(SUM(estimated_savings), 0) AS savings
       FROM mem_recalls
     `).get();
 
-    if (mem && mem.recalls > 0) {
-      lines.push(
-        `[model-router] Mem recalls: ${mem.recalls} lookups, ` +
-        `${mem.observations} observations, ` +
-        `${mem.tokens.toLocaleString()} discovery tokens, ` +
-        `est. saved ${fmt(mem.savings)}`
-      );
+    if (last) {
+      lastMem = db.prepare(`
+        SELECT COUNT(*) AS recalls, COALESCE(SUM(observation_count), 0) AS observations,
+               COALESCE(SUM(estimated_savings), 0) AS savings
+        FROM mem_recalls WHERE session_id = ?
+      `).get(last.session_id);
     }
   }
 
-  // Last session summary
-  const last = db.prepare(`
-    SELECT session_id, MIN(timestamp) AS started, MAX(timestamp) AS ended,
-           COUNT(*) AS n, SUM(estimated_cost) AS cost, SUM(savings) AS savings
-    FROM invocations GROUP BY session_id ORDER BY started DESC LIMIT 1
-  `).get();
-
-  if (last) {
-    lines.push(
-      `[model-router] Last session: ${last.n} interactions, ` +
-      `cost ${fmt(last.cost)}, saved ${fmt(last.savings)} ` +
-      `(${last.started.slice(0, 16)} to ${last.ended.slice(0, 16)})`
-    );
+  // claude-mem knowledge base stats
+  let memDbStats = null;
+  if (existsSync(CLAUDE_MEM_DB_PATH)) {
+    try {
+      const memDb = new Database(CLAUDE_MEM_DB_PATH, { readonly: true });
+      memDbStats = memDb.prepare(`
+        SELECT COUNT(*) AS total_observations,
+               COALESCE(SUM(discovery_tokens), 0) AS total_discovery_tokens
+        FROM observations
+      `).get();
+      memDb.close();
+    } catch { /* non-fatal */ }
   }
 
   db.close();
 
+  // ── Format output ────────────────────────────────────────────────────
+
+  const sep = `${c.gray}|${c.reset}`;
+  const indent = '        ';
+  const label = (text) => `${c.gray}${text}${c.reset}`;
+
+  function fmtModels(models) {
+    return models.map(m => {
+      const mc = MODEL_COLORS[m.model] || c.white;
+      return `${mc}${c.bold}${m.model}${c.reset}${c.gray}:${c.reset} ${c.white}${m.n}${c.reset} ${c.gray}(${c.reset}${c.yellow}${fmt(m.cost)}${c.reset}${c.gray})${c.reset}`;
+    }).join(` ${sep} `);
+  }
+
+  function fmtMemLine(mem) {
+    if (!mem || mem.recalls === 0) return `${c.dim}no recalls yet${c.reset}`;
+    return `${c.white}${mem.recalls}${c.reset} lookups ${sep} ${c.white}${mem.observations}${c.reset} observations ${sep} saved ${c.green}${fmt(mem.savings)}${c.reset}`;
+  }
+
+  function fmtTotalCosts(cost, savings, savingsPct) {
+    return `${c.yellow}${fmt(cost)}${c.reset} ${sep} Saved ${c.green}${c.bold}${fmt(savings)}${c.reset} ${sep} ${c.green}${pct(savingsPct)}${c.reset} savings`;
+  }
+
+  const lines = [];
+  const header = `${c.bold}${c.cyan}[claude-model-router]${c.reset}`;
+  lines.push(`  ${header}`);
+
+  // ── Last Session ─────────────────────────────────────────────────────
+  if (last) {
+    lines.push(`${indent}${c.bold}${c.white}Last Session${c.reset} ${c.gray}(${last.started.slice(0, 16)} to ${last.ended.slice(0, 16)})${c.reset}`);
+    lines.push(`${indent}    ${label('claude-mem   :')} ${fmtMemLine(lastMem)}`);
+    lines.push(
+      `${indent}    ${label('model-router :')} ` +
+      `${c.white}${last.n}${c.reset} interactions ${sep} ` +
+      `${c.white}${lastTokens}${c.reset} tokens ${sep} ` +
+      `cost ${c.yellow}${fmt(last.cost)}${c.reset} ${c.gray}(${c.reset}saved ${c.green}${fmt(last.savings)}${c.reset}${c.gray})${c.reset}`
+    );
+    if (lastModels.length) {
+      lines.push(`${indent}    ${label('models used  :')} ${fmtModels(lastModels)}`);
+    }
+    const lastTotalCost = last.cost;
+    const lastTotalSavings = last.savings + (lastMem?.savings || 0);
+    const lastTotalBaseline = last.opus_baseline;
+    const lastTotalPct = lastTotalBaseline > 0 ? (lastTotalSavings / lastTotalBaseline) * 100 : 0;
+    lines.push(`${indent}    ${label('total costs  :')} ${fmtTotalCosts(lastTotalCost, lastTotalSavings, lastTotalPct)}`);
+  }
+
+  // ── Lifetime ─────────────────────────────────────────────────────────
+  lines.push(`${indent}${c.bold}${c.white}Lifetime${c.reset}`);
+  lines.push(`${indent}    ${label('claude-mem   :')} ${fmtMemLine(lifetimeMem)}${memDbStats ? ` ${c.gray}(${memDbStats.total_observations.toLocaleString()} in knowledge base)${c.reset}` : ''}`);
+  lines.push(
+    `${indent}    ${label('model-router :')} ` +
+    `${c.white}${row.sessions}${c.reset} sessions ${sep} ` +
+    `${c.white}${row.invocations}${c.reset} interactions ${sep} ` +
+    `${c.white}${lifetimeTokens}${c.reset} tokens ${sep} ` +
+    `cost ${c.yellow}${fmt(row.cost)}${c.reset} ${c.gray}(${c.reset}saved ${c.green}${fmt(row.savings)}${c.reset}${c.gray})${c.reset}`
+  );
+  if (lifetimeModels.length) {
+    lines.push(`${indent}    ${label('models used  :')} ${fmtModels(lifetimeModels)}`);
+  }
+  const lifetimeTotalCost = row.cost;
+  const lifetimeTotalSavings = row.savings + (lifetimeMem?.savings || 0);
+  const lifetimeTotalBaseline = row.opus_baseline;
+  const lifetimeTotalPct = lifetimeTotalBaseline > 0 ? (lifetimeTotalSavings / lifetimeTotalBaseline) * 100 : 0;
+  lines.push(`${indent}    ${label('total costs  :')} ${fmtTotalCosts(lifetimeTotalCost, lifetimeTotalSavings, lifetimeTotalPct)}`);
+
   const statsText = '\n' + lines.join('\n');
 
-  output(statsText, statsText);
+  // additionalContext goes into Claude's context — strip ANSI for that
+  const plainText = statsText.replace(/\x1b\[[0-9;]*m/g, '');
+  output(plainText, statsText);
 } catch (e) {
   console.error(`[model-router] Stats unavailable: ${e.message}`);
 }
