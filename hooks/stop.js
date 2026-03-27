@@ -28,11 +28,12 @@ const CLAUDE_MEM_DB_PATH = process.env.CLAUDE_MEM_DATA_DIR
 
 const STATE_DIR = resolve(homedir(), '.claude', '.claude-model-router-state');
 
-// Per-token pricing (USD) — keep in sync with config.js
+// Per-token pricing (USD) — keep in sync with config.js and Anthropic pricing page.
+// Cache reads are 90% cheaper; cache writes are 25% more expensive than base input.
 const MODEL_PRICING = {
-  opus:   { input: 15.00 / 1_000_000, output: 75.00 / 1_000_000 },
-  sonnet: { input:  3.00 / 1_000_000, output: 15.00 / 1_000_000 },
-  haiku:  { input:  0.80 / 1_000_000, output:  4.00 / 1_000_000 },
+  opus:   { input: 15.00 / 1_000_000, output: 75.00 / 1_000_000, cacheRead: 1.50 / 1_000_000, cacheCreate: 18.75 / 1_000_000 },
+  sonnet: { input:  3.00 / 1_000_000, output: 15.00 / 1_000_000, cacheRead: 0.30 / 1_000_000, cacheCreate:  3.75 / 1_000_000 },
+  haiku:  { input:  0.80 / 1_000_000, output:  4.00 / 1_000_000, cacheRead: 0.08 / 1_000_000, cacheCreate:  1.00 / 1_000_000 },
 };
 
 // claude-mem MCP tool name prefix
@@ -137,9 +138,9 @@ function processTranscript(transcriptPath) {
         if (usage.output_tokens > 0) {
           newEntries.push({
             model: normalizeModel(entry.message.model),
-            inputTokens: (usage.input_tokens || 0) +
-              (usage.cache_creation_input_tokens || 0) +
-              (usage.cache_read_input_tokens || 0),
+            inputTokens: usage.input_tokens || 0,
+            cacheCreateTokens: usage.cache_creation_input_tokens || 0,
+            cacheReadTokens: usage.cache_read_input_tokens || 0,
             outputTokens: usage.output_tokens || 0,
             stopReason: entry.message.stop_reason,
             timestamp: entry.timestamp,
@@ -156,24 +157,43 @@ function processTranscript(transcriptPath) {
   if (newEntries.length === 0) return null;
 
   let totalInput = 0;
+  let totalCacheCreate = 0;
+  let totalCacheRead = 0;
   let totalOutput = 0;
   let model = 'opus';
   for (const e of newEntries) {
     totalInput += e.inputTokens;
+    totalCacheCreate += e.cacheCreateTokens;
+    totalCacheRead += e.cacheReadTokens;
     totalOutput += e.outputTokens;
     model = e.model;
   }
 
   const isSubagent = transcriptPath.includes('/subagents/');
   const pricing = MODEL_PRICING[model] || MODEL_PRICING.opus;
-  const estimatedCost = totalInput * pricing.input + totalOutput * pricing.output;
-  const opusBaseline = totalInput * MODEL_PRICING.opus.input +
-    totalOutput * MODEL_PRICING.opus.output;
+
+  // Cost with proper cache-aware pricing
+  const estimatedCost =
+    totalInput * pricing.input +
+    totalCacheCreate * (pricing.cacheCreate || pricing.input * 1.25) +
+    totalCacheRead * (pricing.cacheRead || pricing.input * 0.1) +
+    totalOutput * pricing.output;
+
+  // Opus baseline also uses cache-aware pricing for fair comparison
+  const opusPricing = MODEL_PRICING.opus;
+  const opusBaseline =
+    totalInput * opusPricing.input +
+    totalCacheCreate * (opusPricing.cacheCreate || opusPricing.input * 1.25) +
+    totalCacheRead * (opusPricing.cacheRead || opusPricing.input * 0.1) +
+    totalOutput * opusPricing.output;
+
+  // Total tokens for DB storage (all input types combined for the token counter)
+  const allInputTokens = totalInput + totalCacheCreate + totalCacheRead;
 
   return {
     model,
     interactionMode: isSubagent ? 'agent' : 'direct',
-    totalInput,
+    totalInput: allInputTokens,
     totalOutput,
     estimatedCost,
     opusBaseline,

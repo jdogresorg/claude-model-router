@@ -4,11 +4,12 @@
  * Users can override defaults by passing env vars or providing a config file.
  */
 
-// Per-token pricing (USD) — update when Anthropic changes pricing
+// Per-token pricing (USD) — update when Anthropic changes pricing.
+// Cache reads are 90% cheaper; cache writes are 25% more expensive than base input.
 export const MODEL_PRICING = {
-  opus:   { input: 15.00 / 1_000_000, output: 75.00 / 1_000_000 },
-  sonnet: { input:  3.00 / 1_000_000, output: 15.00 / 1_000_000 },
-  haiku:  { input:  0.80 / 1_000_000, output:  4.00 / 1_000_000 },
+  opus:   { input: 15.00 / 1_000_000, output: 75.00 / 1_000_000, cacheRead: 1.50 / 1_000_000, cacheCreate: 18.75 / 1_000_000 },
+  sonnet: { input:  3.00 / 1_000_000, output: 15.00 / 1_000_000, cacheRead: 0.30 / 1_000_000, cacheCreate:  3.75 / 1_000_000 },
+  haiku:  { input:  0.80 / 1_000_000, output:  4.00 / 1_000_000, cacheRead: 0.08 / 1_000_000, cacheCreate:  1.00 / 1_000_000 },
 };
 
 // Default model selection matrix
