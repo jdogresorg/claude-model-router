@@ -166,3 +166,6 @@ All data is stored in a local SQLite database (`~/.claude/.claude-model-router.d
 ## License
 
 MIT
+
+## Donations
+Find this tool helpful? Donations happily accepted via [Cash.app](https://cash.app/$jdogresorg), [Venmo](https://account.venmo.com/u/jdogresorg), [Paypal](https://paypal.me/jdogresorg), or send BTC to 1JDogZS6tQcSxwfxhv6XKKjcyicYA4Feev 
