@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>claude-model-router — Intelligent Model Selection for Claude Code</title>
+  <meta name="description" content="Automatically route Claude Code sub-tasks to the cheapest capable model. Save 35-50% on token costs without sacrificing quality.">
+  <meta property="og:title" content="claude-model-router">
+  <meta property="og:description" content="Intelligent model routing for Claude Code. Save 35-50% on token costs.">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f4a1;</text></svg>">
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <a href="#" class="logo">claude-model-router</a>
+      <ul>
+        <li><a href="#how-it-works">How It Works</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#savings">Savings</a></li>
+        <li><a href="https://github.com/jdogresorg/claude-model-router" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1>Stop Paying Opus Prices<br>for <span class="highlight">Haiku Tasks</span></h1>
+      <p class="subtitle">claude-model-router automatically routes Claude Code sub-tasks to the cheapest capable model &mdash; saving 35&ndash;50% on token costs without sacrificing quality.</p>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyInstall(this)" aria-label="Copy install command">Copy</button>
+        <span class="prompt">$ </span>claude plugin add /path/to/claude-model-router
+      </div>
+      <div class="cta-group">
+        <a href="https://github.com/jdogresorg/claude-model-router" class="btn btn-primary" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          View on GitHub
+        </a>
+        <a href="https://github.com/jdogresorg/claude-model-router#readme" class="btn btn-outline" target="_blank" rel="noopener">Read the Docs</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- The Problem -->
+  <section id="problem">
+    <div class="container">
+      <span class="section-label">The Problem</span>
+      <h2 class="section-title">Every Claude Code session burns tokens.<br>Most of them are wasted.</h2>
+      <p class="section-desc">When Claude Code spawns sub-agents for file exploration, code search, or formatting, it defaults to the most capable model. That's like hiring an architect to measure a room.</p>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value cyan">~60%</div>
+          <div class="stat-label">of sub-agent tasks are simple enough for Haiku</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value yellow">19x</div>
+          <div class="stat-label">price difference between Opus and Haiku output tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value green">$0</div>
+          <div class="stat-label">cost to find out &mdash; model-router is free and local</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works">
+    <div class="container">
+      <span class="section-label">How It Works</span>
+      <h2 class="section-title">Two-step routing. Zero configuration.</h2>
+      <p class="section-desc">Install the plugin and everything is automatic. Token tracking starts immediately, routing instructions are injected into your CLAUDE.md, and savings are reported every session.</p>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <div class="step-title">Agent Type Rules (hard-coded)</div>
+            <div class="step-detail">
+              Known-simple agent types are routed instantly:<br>
+              Explore, code-guide, statusline &rarr; <span class="model-tag haiku">Haiku</span>&ensp;
+              Plan &rarr; <span class="model-tag sonnet">Sonnet</span>&ensp;
+              General-purpose &rarr; Step 2
+            </div>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <div class="step-title">Complexity Classification</div>
+            <div class="step-detail">For general-purpose agents, a fast Haiku call classifies the task by complexity and context dependency.</div>
+          </div>
+        </div>
+        <div class="flow-matrix">
+          <table>
+            <thead>
+              <tr><th>Complexity</th><th>Context</th><th>Model</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Simple</td><td>Low</td><td><span class="model-tag haiku">Haiku</span></td></tr>
+              <tr><td>Simple</td><td>High</td><td><span class="model-tag sonnet">Sonnet</span></td></tr>
+              <tr><td>Medium</td><td>Low</td><td><span class="model-tag sonnet">Sonnet</span></td></tr>
+              <tr><td>Medium</td><td>High</td><td><span class="model-tag opus">Opus</span></td></tr>
+              <tr><td>Complex</td><td>Any</td><td><span class="model-tag opus">Opus</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="flow-step" style="margin-top: 24px;">
+          <div class="step-num" style="background: var(--orange);">!</div>
+          <div class="step-content">
+            <div class="step-title">Escalation</div>
+            <div class="step-detail">If a cheaper model fails, retry once at the next tier (haiku &rarr; sonnet, sonnet &rarr; opus). Never at the same level.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="container">
+      <span class="section-label">Features</span>
+      <h2 class="section-title">Everything automatic. Nothing to configure.</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-icon" style="color: var(--cyan);">&#9672;</span>
+          <h3>Automatic Token Tracking</h3>
+          <p>Every API interaction is logged &mdash; main thread and sub-agents. No manual calls needed. A stop hook processes transcripts after every response.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" style="color: var(--accent);">&#9672;</span>
+          <h3>Intelligent Routing</h3>
+          <p>Two-step classification routes tasks by agent type, complexity, and context dependency. Hard rules catch obvious cases before the classifier runs.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" style="color: var(--green);">&#9672;</span>
+          <h3>Session &amp; Lifetime Reports</h3>
+          <p>Colorized terminal banners show per-session and all-time cost breakdowns with per-model usage and savings percentages.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" style="color: var(--yellow);">&#9672;</span>
+          <h3>Transparent Pricing</h3>
+          <p>The <code>get_routing_config</code> tool exposes the full routing matrix and model pricing. No black boxes.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" style="color: var(--orange);">&#9672;</span>
+          <h3>Smart Escalation</h3>
+          <p>Failed sub-agents retry at the next model tier, never the same one. Haiku &rarr; Sonnet &rarr; Opus. Quality is never sacrificed.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon" style="color: var(--magenta);">&#9672;</span>
+          <h3>Local-First Privacy</h3>
+          <p>All data stays in a local SQLite database. Nothing leaves your machine except standard Anthropic API calls.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Savings -->
+  <section id="savings">
+    <div class="container">
+      <span class="section-label">Real Savings</span>
+      <h2 class="section-title">The numbers speak for themselves.</h2>
+      <p class="section-desc">Real-world results from heavy Claude Code usage with agent-based workflows.</p>
+      <div class="savings-highlight">
+        <div class="savings-big">38.8%</div>
+        <div class="savings-label">average cost reduction vs. all-Opus baseline</div>
+        <div class="savings-breakdown">
+          <div class="savings-stat">
+            <div class="val">151</div>
+            <div class="lbl">interactions tracked</div>
+          </div>
+          <div class="savings-stat">
+            <div class="val">330M+</div>
+            <div class="lbl">tokens processed</div>
+          </div>
+          <div class="savings-stat">
+            <div class="val">$556</div>
+            <div class="lbl">actual cost</div>
+          </div>
+          <div class="savings-stat">
+            <div class="val" style="color: var(--green);">$350</div>
+            <div class="lbl">saved vs. Opus baseline</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Setup -->
+  <section id="setup">
+    <div class="container">
+      <span class="section-label">Get Started</span>
+      <h2 class="section-title">Install in 60 seconds.</h2>
+      <div class="setup-cols">
+        <div class="setup-col">
+          <h3>Quick Start</h3>
+          <div class="code-block">
+            <span class="prompt"># </span>Clone the repo<br>
+            <span class="prompt">$ </span>git clone https://github.com/jdogresorg/claude-model-router.git<br><br>
+            <span class="prompt"># </span>Install dependencies<br>
+            <span class="prompt">$ </span>cd claude-model-router &amp;&amp; npm install<br><br>
+            <span class="prompt"># </span>Add to Claude Code<br>
+            <span class="prompt">$ </span>claude plugin add ./claude-model-router
+          </div>
+          <p>That's it. Token tracking starts automatically on your next session.</p>
+        </div>
+        <div class="setup-col">
+          <h3>Better Together with claude-mem</h3>
+          <p>When paired with <a href="https://claude-mem.ai" target="_blank" rel="noopener">claude-mem</a>, the two plugins attack costs from both sides:</p>
+          <ul>
+            <li><strong>claude-mem</strong> reduces <em>input</em> tokens by recalling past discoveries</li>
+            <li><strong>model-router</strong> reduces <em>output</em> costs by routing to cheaper models</li>
+            <li>Combined savings tracked and reported together in every session</li>
+          </ul>
+          <h3 style="margin-top: 24px;">Requirements</h3>
+          <ul>
+            <li>Claude Code CLI</li>
+            <li>Node.js 18+</li>
+            <li><code>ANTHROPIC_API_KEY</code> environment variable</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer CTA -->
+  <section class="footer-cta">
+    <div class="container">
+      <h2>Start saving on your next session.</h2>
+      <p>Free, open-source, MIT licensed.</p>
+      <a href="https://github.com/jdogresorg/claude-model-router" class="btn btn-primary" target="_blank" rel="noopener">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-left">
+        <span>claude-model-router &middot; MIT License &middot; by <a href="https://github.com/jdogresorg">J-Dog</a></span>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/jdogresorg/claude-model-router" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/jdogresorg/claude-model-router/issues" target="_blank" rel="noopener">Issues</a></li>
+        <li><a href="https://claude-mem.ai" target="_blank" rel="noopener">claude-mem</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script>
+    function copyInstall(btn) {
+      navigator.clipboard.writeText('claude plugin add /path/to/claude-model-router').then(function() {
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

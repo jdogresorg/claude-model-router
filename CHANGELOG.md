@@ -2,6 +2,14 @@
 
 All notable changes to claude-model-router will be documented in this file.
 
+## [0.5.4] - 2026-03-26
+
+### Added
+
+- Marketing website for GitHub Pages (`docs/index.html`, `docs/style.css`)
+- Single-page dark-themed site: hero, problem statement, routing flow, features, real savings stats, setup guide
+- Static HTML+CSS, no external dependencies, ~24KB total
+
 ## [0.5.3] - 2026-03-26
 
 ### Added
