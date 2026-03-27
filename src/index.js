@@ -18,6 +18,7 @@ import {
   logInvocation,
   getLifetimeDetailedStats,
   getLifetimeMemSavings,
+  getLastSessionMemSavings,
   closeDb,
 } from './logger.js';
 import { generateSessionReport, generateQuickSummary } from './reporter.js';
@@ -256,6 +257,18 @@ server.tool(
           combined_savings: formatCost(
             (totals.total_savings || 0) + (memSavings.total_estimated_savings || 0)
           ),
+        };
+      }
+
+      const lastMemSession = getLastSessionMemSavings();
+      if (lastMemSession && lastMemSession.total_recalls > 0) {
+        result.last_session_mem = {
+          recalls: lastMemSession.total_recalls,
+          observations: lastMemSession.total_observations,
+          discovery_tokens: lastMemSession.total_discovery_tokens,
+          estimated_savings: formatCost(lastMemSession.total_estimated_savings),
+          from: lastMemSession.first_recall,
+          to: lastMemSession.last_recall,
         };
       }
 

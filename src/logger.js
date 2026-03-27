@@ -468,6 +468,33 @@ export function getSessionMemToolBreakdown(sessionId) {
 }
 
 /**
+ * Get mem savings for the most recent session (not the current one).
+ */
+export function getLastSessionMemSavings() {
+  const database = getDb();
+  const tableExists = database.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='mem_recalls'`
+  ).get();
+  if (!tableExists) return null;
+
+  // Find the most recent session_id that has mem recalls
+  const last = database.prepare(`
+    SELECT session_id,
+      COUNT(*) AS total_recalls,
+      COALESCE(SUM(observation_count), 0) AS total_observations,
+      COALESCE(SUM(discovery_tokens), 0) AS total_discovery_tokens,
+      COALESCE(SUM(estimated_savings), 0) AS total_estimated_savings,
+      MIN(timestamp) AS first_recall,
+      MAX(timestamp) AS last_recall
+    FROM mem_recalls
+    GROUP BY session_id
+    ORDER BY MAX(timestamp) DESC
+    LIMIT 1
+  `).get();
+  return last || null;
+}
+
+/**
  * Get lifetime mem savings stats.
  */
 export function getLifetimeMemSavings() {
@@ -509,6 +536,7 @@ export default {
   getLifetimeStats,
   getLifetimeDetailedStats,
   getLifetimeMemSavings,
+  getLastSessionMemSavings,
   getSessionMemSavings,
   getSessionMemToolBreakdown,
   getEscalationPatterns,
